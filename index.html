@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Museum Road Trip Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Leaflet styles -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body, html { margin: 0; height: 100%; }
+    #map { height: 100%; width: 100%; }
+    .car-icon {
+      width: 32px;
+      height: 32px;
+      background-image: url('https://cdn-icons-png.flaticon.com/512/743/743922.png');
+      background-size: contain;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // Initialize map centered on UK
+    const map = L.map('map').setView([54.5, -3], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Player car marker
+    const carIcon = L.divIcon({ className: 'car-icon' });
+    let carMarker = L.marker([54.5, -3], { icon: carIcon }).addTo(map);
+
+    // Basic movement (WASD or arrow keys)
+    let carPos = { lat: 54.5, lng: -3 };
+    const step = 0.05;
+
+    function moveCar(latOffset, lngOffset) {
+      carPos.lat += latOffset;
+      carPos.lng += lngOffset;
+      carMarker.setLatLng([carPos.lat, carPos.lng]);
+      checkNearbyObjects();
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowUp' || e.key === 'w') moveCar(step, 0);
+      if (e.key === 'ArrowDown' || e.key === 's') moveCar(-step, 0);
+      if (e.key === 'ArrowLeft' || e.key === 'a') moveCar(0, -step);
+      if (e.key === 'ArrowRight' || e.key === 'd') moveCar(0, step);
+    });
+
+    // Example object data (mocked; replace with real coordinates + info)
+    const objects = [
+      { title: "Pacemaker", place: "London", lat: 51.5, lng: -0.1, description: "Miniature external pulse generator, APC Medical." },
+      { title: "Egg incubator", place: "Manchester", lat: 53.48, lng: -2.24, description: "Stephens Cabinet Incubator Co. Ltd., 1938." },
+      { title: "Advertisement for Opocalcium", place: "Edinburgh", lat: 55.95, lng: -3.19, description: "Dr. Guersants' 'Opocalcium' advertisement." }
+    ];
+
+    // Place markers for museum objects
+    const objectMarkers = objects.map(obj => {
+      const marker = L.marker([obj.lat, obj.lng]).addTo(map);
+      marker.bindPopup(`<b>${obj.title}</b><br>${obj.description}<br><i>${obj.place}</i>`);
+      return marker;
+    });
+
+    function checkNearbyObjects() {
+      objectMarkers.forEach(m => {
+        const distance = map.distance(m.getLatLng(), carMarker.getLatLng());
+        if (distance < 20000) { // within 20 km
+          m.openPopup();
+        } else {
+          m.closePopup();
+        }
+      });
+    }
+  </script>
+</body>
+</html>
