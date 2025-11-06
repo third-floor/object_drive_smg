@@ -2,39 +2,118 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Museum Road Trip Game</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Leaflet styles -->
+  <title>Museum Road Trip 🚗</title>
+
+  <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
   <style>
-    body, html { margin: 0; height: 100%; }
-    #map { height: 100%; width: 100%; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: system-ui, sans-serif;
+      background: #f0f0f0;
+      overflow: hidden;
+    }
+
+    #map {
+      position: absolute;
+      top: 0;
+      left: 250px;
+      right: 0;
+      bottom: 0;
+    }
+
+    /* Sidebar for discovery log */
+    #sidebar {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 250px;
+      background: #fff;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.15);
+      padding: 10px;
+      overflow-y: auto;
+      z-index: 1000;
+    }
+
+    #sidebar h2 {
+      font-size: 1.2em;
+      text-align: center;
+      margin: 0.5em 0;
+    }
+
+    #log {
+      font-size: 0.9em;
+    }
+
+    .log-entry {
+      border-bottom: 1px solid #ddd;
+      padding: 6px 0;
+    }
+
+    .log-entry b {
+      display: block;
+      color: #333;
+    }
+
+    /* Car icon */
     .car-icon {
       width: 32px;
       height: 32px;
       background-image: url('https://cdn-icons-png.flaticon.com/512/743/743922.png');
       background-size: contain;
     }
+
+    /* Small loading overlay */
+    #loading {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255,255,255,0.9);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.9em;
+      box-shadow: 0 0 6px rgba(0,0,0,0.2);
+      z-index: 1000;
+    }
+
+    /* Responsive: hide sidebar on small screens */
+    @media (max-width: 700px) {
+      #sidebar {
+        display: none;
+      }
+      #map {
+        left: 0;
+      }
+    }
   </style>
 </head>
+
 <body>
+  <div id="sidebar">
+    <h2>🗺️ Discoveries</h2>
+    <div id="log">Drive near markers to discover objects!</div>
+  </div>
+
   <div id="map"></div>
+  <div id="loading">Loading museum objects...</div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
-    // Initialize map centered on UK
+    // --- Initialize Map ---
     const map = L.map('map').setView([54.5, -3], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    // Player car marker
+    // --- Car Setup ---
     const carIcon = L.divIcon({ className: 'car-icon' });
     let carMarker = L.marker([54.5, -3], { icon: carIcon }).addTo(map);
-
-    // Basic movement (WASD or arrow keys)
     let carPos = { lat: 54.5, lng: -3 };
-    const step = 0.05;
+    const step = 0.2; // movement step in degrees (~20 km)
 
     function moveCar(latOffset, lngOffset) {
       carPos.lat += latOffset;
@@ -44,31 +123,65 @@
     }
 
     document.addEventListener('keydown', e => {
-      if (e.key === 'ArrowUp' || e.key === 'w') moveCar(step, 0);
-      if (e.key === 'ArrowDown' || e.key === 's') moveCar(-step, 0);
-      if (e.key === 'ArrowLeft' || e.key === 'a') moveCar(0, -step);
-      if (e.key === 'ArrowRight' || e.key === 'd') moveCar(0, step);
+      switch (e.key) {
+        case 'ArrowUp': case 'w': moveCar(step, 0); break;
+        case 'ArrowDown': case 's': moveCar(-step, 0); break;
+        case 'ArrowLeft': case 'a': moveCar(0, -step); break;
+        case 'ArrowRight': case 'd': moveCar(0, step); break;
+      }
     });
 
-    // Example object data (mocked; replace with real coordinates + info)
-    const objects = [
-      { title: "Pacemaker", place: "London", lat: 51.5, lng: -0.1, description: "Miniature external pulse generator, APC Medical." },
-      { title: "Egg incubator", place: "Manchester", lat: 53.48, lng: -2.24, description: "Stephens Cabinet Incubator Co. Ltd., 1938." },
-      { title: "Advertisement for Opocalcium", place: "Edinburgh", lat: 55.95, lng: -3.19, description: "Dr. Guersants' 'Opocalcium' advertisement." }
-    ];
+    // --- Discovery Log ---
+    const logDiv = document.getElementById('log');
+    const discoveries = new Set();
+    function addToLog(obj) {
+      if (discoveries.has(obj.title)) return;
+      discoveries.add(obj.title);
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `
+        <b>${obj.title}</b>
+        <i>${obj.category}</i><br>
+        <small>${obj.place}</small>
+      `;
+      logDiv.prepend(entry);
+    }
 
-    // Place markers for museum objects
-    const objectMarkers = objects.map(obj => {
-      const marker = L.marker([obj.lat, obj.lng]).addTo(map);
-      marker.bindPopup(`<b>${obj.title}</b><br>${obj.description}<br><i>${obj.place}</i>`);
-      return marker;
-    });
+    // --- Load Museum Objects ---
+    let objectMarkers = [];
+    fetch('objects.json')
+      .then(res => res.json())
+      .then(objects => {
+        document.getElementById('loading').innerText = `Loaded ${objects.length} objects`;
+        console.log(`Loaded ${objects.length} museum objects`);
 
+        objectMarkers = objects.map(obj => {
+          const marker = L.marker([obj.lat, obj.lng]).addTo(map);
+          marker.bindPopup(`
+            <b>${obj.title}</b><br>
+            <i>${obj.category}</i><br>
+            <p>${obj.description}</p>
+            <small>Maker: ${obj.maker || 'Unknown'}</small><br>
+            <small>Place: ${obj.place}</small>
+          `);
+          marker.data = obj;
+          return marker;
+        });
+
+        document.getElementById('loading').style.display = 'none';
+      })
+      .catch(err => {
+        document.getElementById('loading').innerText = "⚠️ Failed to load objects.json";
+        console.error(err);
+      });
+
+    // --- Proximity Detection ---
     function checkNearbyObjects() {
       objectMarkers.forEach(m => {
         const distance = map.distance(m.getLatLng(), carMarker.getLatLng());
-        if (distance < 20000) { // within 20 km
+        if (distance < 20000) { // within ~20 km
           m.openPopup();
+          addToLog(m.data);
         } else {
           m.closePopup();
         }
