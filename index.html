@@ -5,8 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Museum Road Trip 🚗</title>
 
-  <!-- Leaflet -->
+  <!-- Leaflet core -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <!-- Leaflet Routing Machine (for road paths) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
 
   <style>
     html, body {
@@ -59,7 +64,6 @@
       color: #333;
     }
 
-    /* Car icon */
     .car-icon {
       width: 32px;
       height: 32px;
@@ -67,7 +71,6 @@
       background-size: contain;
     }
 
-    /* Small loading overlay */
     #loading {
       position: absolute;
       top: 10px;
@@ -80,14 +83,9 @@
       z-index: 1000;
     }
 
-    /* Responsive: hide sidebar on small screens */
     @media (max-width: 700px) {
-      #sidebar {
-        display: none;
-      }
-      #map {
-        left: 0;
-      }
+      #sidebar { display: none; }
+      #map { left: 0; }
     }
   </style>
 </head>
@@ -95,13 +93,12 @@
 <body>
   <div id="sidebar">
     <h2>🗺️ Discoveries</h2>
-    <div id="log">Drive near markers to discover objects!</div>
+    <div id="log">Drive along the roads to discover nearby objects!</div>
   </div>
 
   <div id="map"></div>
   <div id="loading">Loading museum objects...</div>
 
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
     // --- Initialize Map ---
     const map = L.map('map').setView([54.5, -3], 6);
@@ -109,29 +106,12 @@
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    // --- Car Setup ---
+    // --- Car setup ---
     const carIcon = L.divIcon({ className: 'car-icon' });
-    let carMarker = L.marker([54.5, -3], { icon: carIcon }).addTo(map);
     let carPos = { lat: 54.5, lng: -3 };
-    const step = 0.2; // movement step in degrees (~20 km)
+    let carMarker = L.marker([carPos.lat, carPos.lng], { icon: carIcon }).addTo(map);
 
-    function moveCar(latOffset, lngOffset) {
-      carPos.lat += latOffset;
-      carPos.lng += lngOffset;
-      carMarker.setLatLng([carPos.lat, carPos.lng]);
-      checkNearbyObjects();
-    }
-
-    document.addEventListener('keydown', e => {
-      switch (e.key) {
-        case 'ArrowUp': case 'w': moveCar(step, 0); break;
-        case 'ArrowDown': case 's': moveCar(-step, 0); break;
-        case 'ArrowLeft': case 'a': moveCar(0, -step); break;
-        case 'ArrowRight': case 'd': moveCar(0, step); break;
-      }
-    });
-
-    // --- Discovery Log ---
+    // --- Discovery log ---
     const logDiv = document.getElementById('log');
     const discoveries = new Set();
     function addToLog(obj) {
@@ -147,14 +127,13 @@
       logDiv.prepend(entry);
     }
 
-    // --- Load Museum Objects ---
+    // --- Load museum objects ---
     let objectMarkers = [];
     fetch('objects.json')
       .then(res => res.json())
       .then(objects => {
         document.getElementById('loading').innerText = `Loaded ${objects.length} objects`;
         console.log(`Loaded ${objects.length} museum objects`);
-
         objectMarkers = objects.map(obj => {
           const marker = L.marker([obj.lat, obj.lng]).addTo(map);
           marker.bindPopup(`
@@ -167,7 +146,6 @@
           marker.data = obj;
           return marker;
         });
-
         document.getElementById('loading').style.display = 'none';
       })
       .catch(err => {
@@ -175,7 +153,7 @@
         console.error(err);
       });
 
-    // --- Proximity Detection ---
+    // --- Nearby detection ---
     function checkNearbyObjects() {
       objectMarkers.forEach(m => {
         const distance = map.distance(m.getLatLng(), carMarker.getLatLng());
@@ -187,6 +165,61 @@
         }
       });
     }
+
+    // --- Road-based driving with Leaflet Routing Machine ---
+    let routingControl = null;
+    let isMoving = false;
+
+    function driveTo(latOffset, lngOffset) {
+      if (isMoving) return; // prevent overlapping routes
+      const destination = [carPos.lat + latOffset, carPos.lng + lngOffset];
+
+      if (routingControl) map.removeControl(routingControl);
+
+      routingControl = L.Routing.control({
+        waypoints: [
+          L.latLng(carPos.lat, carPos.lng),
+          L.latLng(destination[0], destination[1])
+        ],
+        lineOptions: { addWaypoints: false, styles: [{color: 'blue', opacity: 0.5, weight: 4}] },
+        routeWhileDragging: false,
+        show: false,
+        addWaypoints: false,
+        fitSelectedRoutes: false,
+        createMarker: () => null
+      }).addTo(map);
+
+      routingControl.on('routesfound', e => {
+        const route = e.routes[0];
+        const coords = route.coordinates;
+        animateAlongRoad(coords);
+      });
+    }
+
+    function animateAlongRoad(coords) {
+      let i = 0;
+      isMoving = true;
+      const interval = setInterval(() => {
+        if (i >= coords.length) {
+          clearInterval(interval);
+          isMoving = false;
+          return;
+        }
+        const p = coords[i];
+        carPos = { lat: p.lat, lng: p.lng };
+        carMarker.setLatLng(p);
+        checkNearbyObjects();
+        i++;
+      }, 20); // speed: smaller = faster
+    }
+
+    // --- Controls ---
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowUp' || e.key === 'w') driveTo(0.2, 0);
+      if (e.key === 'ArrowDown' || e.key === 's') driveTo(-0.2, 0);
+      if (e.key === 'ArrowLeft' || e.key === 'a') driveTo(0, -0.2);
+      if (e.key === 'ArrowRight' || e.key === 'd') driveTo(0, 0.2);
+    });
   </script>
 </body>
 </html>
