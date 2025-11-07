@@ -9,10 +9,6 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  <!-- Routing + animation -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
-  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
-
   <style>
     html, body {
       margin: 0;
@@ -97,7 +93,7 @@
 
   <script>
     // --- Initialize map ---
-    const map = L.map('map').setView([54.5, -3], 6);
+    const map = L.map('map').setView([54.5, -3], 13); // zoomed in for street level
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
@@ -129,7 +125,6 @@
       .then(res => res.json())
       .then(objects => {
         document.getElementById('loading').innerText = `Loaded ${objects.length} objects`;
-        console.log(`Loaded ${objects.length} museum objects`);
         objectMarkers = objects.map(obj => {
           const marker = L.marker([obj.lat, obj.lng]).addTo(map);
           marker.bindPopup(`
@@ -153,7 +148,7 @@
     function checkNearbyObjects() {
       objectMarkers.forEach(m => {
         const distance = map.distance(m.getLatLng(), carMarker.getLatLng());
-        if (distance < 20000) { // within 20 km
+        if (distance < 20000) { // 20 km radius
           m.openPopup();
           addToLog(m.data);
         } else {
@@ -162,11 +157,41 @@
       });
     }
 
-    // --- Routing & movement ---
+    // --- Movement + Routing ---
     let isMoving = false;
     let routeLine = null;
 
-    // Request route from OSRM and animate car
+    // Small road-following step (100m)
+    function moveStep(direction) {
+      if (isMoving) return;
+
+      const stepMeters = 100;
+      const bearingOffsets = { up: 0, right: 90, down: 180, left: 270 };
+      const bearing = bearingOffsets[direction];
+
+      // Convert to destination lat/lng (approx. 100 m away)
+      const R = 6371000; // Earth radius in m
+      const d = stepMeters / R;
+      const latRad = carPos.lat * Math.PI / 180;
+      const lngRad = carPos.lng * Math.PI / 180;
+      const bearingRad = bearing * Math.PI / 180;
+
+      const newLat = Math.asin(
+        Math.sin(latRad) * Math.cos(d) +
+        Math.cos(latRad) * Math.sin(d) * Math.cos(bearingRad)
+      );
+      const newLng = lngRad + Math.atan2(
+        Math.sin(bearingRad) * Math.sin(d) * Math.cos(latRad),
+        Math.cos(d) - Math.sin(latRad) * Math.sin(newLat)
+      );
+
+      const destLat = newLat * 180 / Math.PI;
+      const destLng = newLng * 180 / Math.PI;
+
+      driveTo(destLat, destLng);
+    }
+
+    // Route request from OSRM
     function driveTo(lat, lng) {
       if (isMoving) return;
       const url = `https://router.project-osrm.org/route/v1/driving/${carPos.lng},${carPos.lat};${lng},${lat}?overview=full&geometries=geojson`;
@@ -177,16 +202,17 @@
           if (!data.routes || data.routes.length === 0) return;
           const coords = data.routes[0].geometry.coordinates;
           if (routeLine) map.removeLayer(routeLine);
-          routeLine = L.polyline(coords.map(c => [c[1], c[0]]), { color: 'blue', weight: 4, opacity: 0.4 }).addTo(map);
+          routeLine = L.polyline(coords.map(c => [c[1], c[0]]), { color: 'blue', weight: 3, opacity: 0.4 }).addTo(map);
           animateAlong(coords);
         })
         .catch(err => console.error("Routing error:", err));
     }
 
+    // Smooth car animation
     function animateAlong(coords) {
       isMoving = true;
       let i = 0;
-      const step = 2; // smaller = slower
+      const step = 4; // smaller = smoother, slower
       const total = coords.length;
 
       const move = setInterval(() => {
@@ -198,22 +224,21 @@
         const [lng, lat] = coords[i];
         carPos = { lat, lng };
         carMarker.setLatLng([lat, lng]);
-        map.panTo([lat, lng], { animate: true, duration: 0.5 });
+        map.panTo([lat, lng], { animate: true, duration: 0.3 });
         checkNearbyObjects();
         i += step;
-      }, 50);
+      }, 40);
     }
 
     // --- Controls ---
     document.addEventListener('keydown', e => {
-      const moveDist = 0.3; // degrees
-      if (e.key === 'ArrowUp' || e.key === 'w') driveTo(carPos.lat + moveDist, carPos.lng);
-      if (e.key === 'ArrowDown' || e.key === 's') driveTo(carPos.lat - moveDist, carPos.lng);
-      if (e.key === 'ArrowLeft' || e.key === 'a') driveTo(carPos.lat, carPos.lng - moveDist);
-      if (e.key === 'ArrowRight' || e.key === 'd') driveTo(carPos.lat, carPos.lng + moveDist);
+      if (e.key === 'ArrowUp' || e.key === 'w') moveStep('up');
+      if (e.key === 'ArrowDown' || e.key === 's') moveStep('down');
+      if (e.key === 'ArrowLeft' || e.key === 'a') moveStep('left');
+      if (e.key === 'ArrowRight' || e.key === 'd') moveStep('right');
     });
 
-    // --- Click to drive ---
+    // --- Click to drive anywhere ---
     map.on('click', e => {
       const { lat, lng } = e.latlng;
       driveTo(lat, lng);
