@@ -9,40 +9,12 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- MarkerCluster -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-
-  <!-- Turf.js -->
+  <!-- Turf.js for geometry math -->
   <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 
   <style>
-    html, body {
-      margin: 0;
-      height: 100%;
-      overflow: hidden;
-      font-family: system-ui, sans-serif;
-      background: #f9f9f9;
-    }
-    #map {
-      position: absolute;
-      top: 0; left: 320px; right: 0; bottom: 0;
-    }
-    #sidebar {
-      position: absolute;
-      top: 0; left: 0; bottom: 0;
-      width: 320px;
-      background: white;
-      box-shadow: 2px 0 10px rgba(0,0,0,0.15);
-      overflow-y: auto;
-      padding: 10px;
-      z-index: 1000;
-    }
-    #sidebar h2 {
-      text-align: center;
-      margin-top: 0;
-    }
+    html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; background: #f8f8f8; }
+    #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; }
     .train-icon {
       width: 100px; height: 100px;
       background-image: url('https://cdn-icons-png.flaticon.com/512/757/757594.png');
@@ -50,154 +22,94 @@
       background-repeat: no-repeat;
       transform-origin: center;
     }
-    .direction-arrow {
-      width: 25px; height: 25px;
-      background: url('https://upload.wikimedia.org/wikipedia/commons/3/3c/Arrow_up_font_awesome.svg') no-repeat center;
-      background-size: contain;
-    }
-    #controls {
-      margin-top: 10px;
-      padding: 8px;
-      border-top: 1px solid #ccc;
-      font-size: 0.9em;
-    }
-    #speedValue { font-weight: bold; }
-    #hud {
+    .hud {
       position: absolute;
-      bottom: 15px;
-      left: 340px;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
       background: rgba(255,255,255,0.9);
-      padding: 10px 20px;
       border-radius: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      padding: 10px 20px;
       font-size: 0.9em;
-      z-index: 1001;
       display: flex;
       gap: 20px;
       align-items: center;
+      z-index: 1000;
     }
-    #centerButton {
-      margin-top: 8px;
-      width: 100%;
-      background: #0078ff;
-      color: white;
-      border: none;
-      padding: 8px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.9em;
-    }
-    #centerButton:hover {
-      background: #005fd1;
+    .hud span b { font-size: 1.1em; }
+    .choice-line {
+      color: orange !important;
+      weight: 5 !important;
     }
   </style>
 </head>
 <body>
-  <div id="sidebar">
-    <h2>🚉 Nearby Objects</h2>
-    <div id="info">Loading historic railway data...</div>
-
-    <div id="controls">
-      <label>Speed: <span id="speedValue">1.0</span>x</label><br>
-      <input type="range" id="speedSlider" min="0.5" max="4" step="0.1" value="1.0" />
-      <button id="centerButton">🎯 Center Train</button>
-    </div>
-  </div>
-
   <div id="map"></div>
-  <div id="hud">
-    <span>🚉 <b id="hudStation">—</b></span>
-    <span>📏 <b id="hudDistance">0</b> km</span>
-    <span>⚡ Speed: <b id="hudSpeed">1.0x</b></span>
+  <div class="hud">
+    <span>🚆 Speed: <b id="speedDisplay">0</b></span>
+    <span>📍 Station: <b id="stationDisplay">None</b></span>
+    <span>🛤️ Line: <b id="lineDisplay">--</b></span>
   </div>
 
   <script>
-    const map = L.map('map').setView([53.5, -2.5], 10);
+    // === Map setup ===
+    const map = L.map('map', { keyboard: false }).setView([53.5, -2.5], 12);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
     const trainIcon = L.divIcon({ className: 'train-icon' });
-    const arrowIcon = L.divIcon({ className: 'direction-arrow' });
     let trainMarker = L.marker([53.5, -2.5], { icon: trainIcon }).addTo(map);
-    let directionMarker = L.marker([53.5, -2.5], { icon: arrowIcon }).addTo(map);
-    let trainPos = { lat: 53.5, lng: -2.5 };
-    let stations = [], railways = [], currentStation = null;
+
+    const hudSpeed = document.getElementById('speedDisplay');
+    const hudStation = document.getElementById('stationDisplay');
+    const hudLine = document.getElementById('lineDisplay');
+
+    // === Global state ===
+    let railways = [];
+    let stations = [];
     let objects = [];
-    const sidebar = document.getElementById('info');
+    let currentLine = null;
+    let currentSegment = 0;
+    let speed = 0;
+    let maxSpeed = 0.0005;
+    let acceleration = 0.00002;
+    let direction = 1; // 1 forward, -1 reverse
+    let junctionMode = false;
+    let nextBranches = [];
+    let selectedBranchIndex = 0;
 
-    const hudStation = document.getElementById('hudStation');
-    const hudDistance = document.getElementById('hudDistance');
-    const hudSpeed = document.getElementById('hudSpeed');
-
-    // speed
-    let speedMultiplier = 1.0;
-    document.getElementById('speedSlider').addEventListener('input', e => {
-      speedMultiplier = parseFloat(e.target.value);
-      document.getElementById('speedValue').textContent = speedMultiplier.toFixed(1);
-      hudSpeed.textContent = speedMultiplier.toFixed(1) + 'x';
-    });
-
-    // Center button
-    document.getElementById('centerButton').addEventListener('click', () => {
-      map.panTo(trainMarker.getLatLng());
-    });
-
-    // Load data
+    // === Load data ===
     Promise.all([
       fetch('./data/railways_1881.geojson').then(r => r.json()),
       fetch('./data/stations_1881.geojson').then(r => r.json()),
       fetch('./objects.json').then(r => r.json())
     ]).then(([railData, stationData, objData]) => {
-      objects = objData;
-
-      // Simplify railways for smoother rendering
-      L.geoJSON(railData, { color: '#555', weight: 1 }).addTo(map);
       railways = railData.features;
-
-      // Cluster stations
-      const cluster = L.markerClusterGroup({ chunkedLoading: true });
       stations = stationData.features.map(f => ({
         name: f.properties.name || 'Station',
         lat: f.geometry.coordinates[1],
         lng: f.geometry.coordinates[0]
       }));
-      stations.forEach(s => {
-        const m = L.circleMarker([s.lat, s.lng], { radius: 4, color: 'red' }).bindTooltip(s.name);
-        cluster.addLayer(m);
-      });
-      map.addLayer(cluster);
+      objects = objData;
 
-      // Add object markers
-      const objGroup = L.layerGroup();
-      objects.forEach(o => {
-        if (o.lat && o.lng) {
-          const m = L.marker([o.lat, o.lng]).bindPopup(`<b>${o.title}</b><br><i>${o.category}</i><br>${o.place || ''}`);
-          objGroup.addLayer(m);
-        }
-      });
-      map.addLayer(objGroup);
+      L.geoJSON(railData, { color: '#555', weight: 1 }).addTo(map);
 
-      sidebar.innerHTML = `Loaded ${stations.length} stations and ${objects.length} objects.<br><br>Use arrow keys to move the train along the historic railways.`;
+      // Start train at nearest station
+      const start = nearestStation({ lat: 53.5, lng: -2.5 }, stations);
+      currentLine = findNearestLine(start);
+      currentSegment = findClosestSegment(currentLine, start);
+      const startPos = currentLine.geometry.coordinates[currentSegment];
+      trainMarker.setLatLng([startPos[1], startPos[0]]);
+      map.setView([startPos[1], startPos[0]], 13);
+      hudStation.textContent = start.name;
+      hudLine.textContent = "Segment " + currentSegment;
 
-      // Start at nearest station
-      const start = nearestStation(trainPos, stations);
-      currentStation = snapToRail(start, railways);
-      trainPos = { lat: currentStation.lat, lng: currentStation.lng };
-      trainMarker.setLatLng(trainPos);
-      directionMarker.setLatLng(trainPos);
-      map.panTo(trainPos);
-      hudStation.textContent = currentStation.name;
-
-      // Keyboard controls
-      document.addEventListener('keydown', e => {
-        if (["ArrowUp","w","W","ArrowDown","s","S","ArrowLeft","a","A","ArrowRight","d","D"].includes(e.key)) {
-          moveTrain();
-        }
-      });
+      animateTrain();
     });
 
-    // --- Utils ---
+    // === Core helpers ===
     function nearestStation(pos, list) {
       let min = Infinity, nearest = null;
       list.forEach(s => {
@@ -207,116 +119,141 @@
       return nearest;
     }
 
-    // Snap any position/station to nearest rail line
-    function snapToRail(station, lines) {
+    function findNearestLine(station) {
       const pt = turf.point([station.lng, station.lat]);
-      let closest = null, minDist = Infinity, snapCoord = null;
-      lines.forEach(line => {
+      let closest = null, minDist = Infinity;
+      railways.forEach(line => {
         const geom = turf.lineString(line.geometry.coordinates);
         const snapped = turf.nearestPointOnLine(geom, pt);
-        const d = snapped.properties.dist;
-        if (d < minDist) {
-          minDist = d;
-          snapCoord = snapped.geometry.coordinates;
-          closest = geom;
+        if (snapped.properties.dist < minDist) {
+          minDist = snapped.properties.dist;
+          closest = line;
         }
       });
-      return { ...station, lat: snapCoord[1], lng: snapCoord[0] };
+      return closest;
     }
 
-    // Find nearest connected station
-    function findNearestConnectedStation(station) {
-      const pt = turf.point([station.lng, station.lat]);
-      const nearby = [];
-      railways.forEach(line => {
-        const geom = turf.lineString(line.geometry.coordinates);
-        const d = turf.pointToLineDistance(pt, geom, { units: 'kilometers' });
-        if (d < 0.2) {
-          stations.forEach(s => {
-            const sp = turf.point([s.lng, s.lat]);
-            const d2 = turf.pointToLineDistance(sp, geom, { units: 'kilometers' });
-            if (d2 < 0.2 && s.name !== station.name) nearby.push(s);
-          });
-        }
+    function findClosestSegment(line, station) {
+      const coords = line.geometry.coordinates;
+      let min = Infinity, idx = 0;
+      coords.forEach((c, i) => {
+        const d = turf.distance(turf.point([station.lng, station.lat]), turf.point(c));
+        if (d < min) { min = d; idx = i; }
       });
-      if (nearby.length === 0) return null;
-      return nearestStation(station, nearby);
+      return idx;
     }
 
-    function findRailPath(a, b) {
-      let best = null, bestDist = Infinity;
-      railways.forEach(line => {
-        const geom = turf.lineString(line.geometry.coordinates);
-        const d1 = turf.pointToLineDistance(turf.point([a.lng, a.lat]), geom);
-        const d2 = turf.pointToLineDistance(turf.point([b.lng, b.lat]), geom);
-        if (d1 < 0.2 && d2 < 0.2 && d1 + d2 < bestDist) {
-          bestDist = d1 + d2;
-          best = line.geometry.coordinates.map(c => [c[1], c[0]]);
-        }
+    // === Movement / game loop ===
+    function animateTrain() {
+      if (!currentLine) return;
+
+      const coords = currentLine.geometry.coordinates;
+      if (coords.length < 2) return;
+
+      // Update speed
+      currentSegment += direction * speed * 100;
+      if (currentSegment < 0) currentSegment = 0;
+      if (currentSegment >= coords.length - 1) currentSegment = coords.length - 1;
+
+      const idx = Math.floor(currentSegment);
+      const frac = currentSegment - idx;
+      const [lon1, lat1] = coords[idx];
+      const [lon2, lat2] = coords[Math.min(idx + 1, coords.length - 1)];
+      const lat = lat1 + (lat2 - lat1) * frac;
+      const lon = lon1 + (lon2 - lon1) * frac;
+
+      trainMarker.setLatLng([lat, lon]);
+      map.setView([lat, lon]);
+
+      // Detect station proximity
+      const nearbyStation = stations.find(s => map.distance([lat, lon], [s.lat, s.lng]) < 200);
+      if (nearbyStation) {
+        speed = 0;
+        hudStation.textContent = nearbyStation.name;
+      }
+
+      // Detect junctions
+      const here = turf.point([lon, lat]);
+      nextBranches = findJunctions(currentLine, here);
+      if (nextBranches.length > 1 && !junctionMode && speed > 0) {
+        speed = 0;
+        junctionMode = true;
+        highlightBranches(nextBranches);
+      }
+
+      hudSpeed.textContent = (speed * 5000).toFixed(1);
+      hudLine.textContent = `${Math.floor(currentSegment)} / ${coords.length}`;
+
+      requestAnimationFrame(animateTrain);
+    }
+
+    function findJunctions(line, here) {
+      const junctions = [];
+      railways.forEach(other => {
+        if (other === line) return;
+        const intersect = turf.lineIntersect(turf.lineString(line.geometry.coordinates), turf.lineString(other.geometry.coordinates));
+        if (intersect.features.length > 0) junctions.push(other);
       });
-      return best;
+      return junctions;
     }
 
-    let moving = false;
-    function moveTrain() {
-      if (moving) return;
-      const next = findNearestConnectedStation(currentStation);
-      if (!next) return;
-      const nextSnapped = snapToRail(next, railways);
-      const path = findRailPath(currentStation, nextSnapped);
-      if (!path) return;
-
-      const route = L.polyline(path, { color: 'blue', weight: 3 }).addTo(map);
-      moving = true;
-      animateTrain(path, nextSnapped, route);
-    }
-
-    function animateTrain(coords, nextStation, routeLine) {
-      let i = 0;
-      const total = coords.length;
-      const step = Math.max(1, Math.floor(3 / speedMultiplier));
-      const distanceTotal = (map.distance([coords[0][0], coords[0][1]], [coords[coords.length-1][0], coords[coords.length-1][1]]) / 1000).toFixed(1);
-      hudDistance.textContent = distanceTotal;
-
-      const move = setInterval(() => {
-        if (i >= total) {
-          clearInterval(move);
-          moving = false;
-          trainPos = { lat: nextStation.lat, lng: nextStation.lng };
-          trainMarker.setLatLng(trainPos);
-          directionMarker.setLatLng(trainPos);
-          map.removeLayer(routeLine);
-          currentStation = nextStation;
-          hudStation.textContent = currentStation.name;
-          showNearbyObjects(nextStation);
-          return;
-        }
-        const [lat, lng] = coords[i];
-        const next = coords[Math.min(i + 5, total - 1)];
-        const angle = bearing([lng, lat], [next[1], next[0]]);
-        trainMarker.getElement()?.style.setProperty('transform', `rotate(${angle}deg)`);
-        trainMarker.setLatLng([lat, lng]);
-        directionMarker.setLatLng([lat, lng]);
-        i += step;
-      }, 40 / speedMultiplier);
-    }
-
-    function bearing(a, b) {
-      const [lon1, lat1] = a, [lon2, lat2] = b;
-      const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
-      const x = Math.cos(lat1) * Math.sin(lat2) -
-                Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
-      return Math.atan2(y, x) * 180 / Math.PI;
-    }
-
-    function showNearbyObjects(station) {
-      const nearby = objects.filter(o => o.lat && o.lng && map.distance([station.lat, station.lng], [o.lat, o.lng]) < 24000);
-      let html = `<h2>🚉 ${station.name}</h2><p>${nearby.length} objects within 15 miles:</p>`;
-      nearby.slice(0, 25).forEach(o => {
-        html += `<div style="margin-bottom:8px;"><b>${o.title}</b><br><i>${o.category}</i><br><small>${o.place || ''}</small></div>`;
+    function highlightBranches(branches) {
+      branches.forEach((b, i) => {
+        const l = L.geoJSON(b, {
+          color: i === selectedBranchIndex ? 'orange' : 'yellow',
+          weight: 4
+        }).addTo(map);
+        b._layer = l;
+        l.on('click', () => chooseBranch(i));
       });
-      sidebar.innerHTML = html;
     }
+
+    function clearBranchHighlights() {
+      nextBranches.forEach(b => {
+        if (b._layer) map.removeLayer(b._layer);
+      });
+    }
+
+    function chooseBranch(index) {
+      clearBranchHighlights();
+      currentLine = nextBranches[index];
+      currentSegment = 0;
+      nextBranches = [];
+      junctionMode = false;
+    }
+
+    // === Input handling ===
+    document.addEventListener('keydown', e => {
+      switch (e.key.toLowerCase()) {
+        case 'w':
+        case 'arrowup':
+          speed = Math.min(speed + acceleration, maxSpeed);
+          break;
+        case 's':
+        case 'arrowdown':
+          speed = Math.max(speed - acceleration, -maxSpeed / 2);
+          break;
+        case 'a':
+        case 'arrowleft':
+          if (junctionMode) {
+            selectedBranchIndex = (selectedBranchIndex - 1 + nextBranches.length) % nextBranches.length;
+            clearBranchHighlights();
+            highlightBranches(nextBranches);
+          }
+          break;
+        case 'd':
+        case 'arrowright':
+          if (junctionMode) {
+            selectedBranchIndex = (selectedBranchIndex + 1) % nextBranches.length;
+            clearBranchHighlights();
+            highlightBranches(nextBranches);
+          }
+          break;
+        case 'enter':
+          if (junctionMode) chooseBranch(selectedBranchIndex);
+          break;
+      }
+    });
   </script>
 </body>
 </html>
