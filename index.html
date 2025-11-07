@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  <!-- Leaflet Routing Machine (for road paths) -->
+  <!-- Routing + animation -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
   <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
 
@@ -30,7 +30,7 @@
       bottom: 0;
     }
 
-    /* Sidebar for discovery log */
+    /* Sidebar for discoveries */
     #sidebar {
       position: absolute;
       left: 0;
@@ -59,16 +59,12 @@
       padding: 6px 0;
     }
 
-    .log-entry b {
-      display: block;
-      color: #333;
-    }
-
     .car-icon {
-      width: 32px;
-      height: 32px;
+      width: 36px;
+      height: 36px;
       background-image: url('https://cdn-icons-png.flaticon.com/512/743/743922.png');
       background-size: contain;
+      background-repeat: no-repeat;
     }
 
     #loading {
@@ -93,14 +89,14 @@
 <body>
   <div id="sidebar">
     <h2>🗺️ Discoveries</h2>
-    <div id="log">Drive along the roads to discover nearby objects!</div>
+    <div id="log">Drive along roads to discover nearby objects!</div>
   </div>
 
   <div id="map"></div>
   <div id="loading">Loading museum objects...</div>
 
   <script>
-    // --- Initialize Map ---
+    // --- Initialize map ---
     const map = L.map('map').setView([54.5, -3], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
@@ -157,7 +153,7 @@
     function checkNearbyObjects() {
       objectMarkers.forEach(m => {
         const distance = map.distance(m.getLatLng(), carMarker.getLatLng());
-        if (distance < 20000) { // within ~20 km
+        if (distance < 20000) { // within 20 km
           m.openPopup();
           addToLog(m.data);
         } else {
@@ -166,59 +162,61 @@
       });
     }
 
-    // --- Road-based driving with Leaflet Routing Machine ---
-    let routingControl = null;
+    // --- Routing & movement ---
     let isMoving = false;
+    let routeLine = null;
 
-    function driveTo(latOffset, lngOffset) {
-      if (isMoving) return; // prevent overlapping routes
-      const destination = [carPos.lat + latOffset, carPos.lng + lngOffset];
+    // Request route from OSRM and animate car
+    function driveTo(lat, lng) {
+      if (isMoving) return;
+      const url = `https://router.project-osrm.org/route/v1/driving/${carPos.lng},${carPos.lat};${lng},${lat}?overview=full&geometries=geojson`;
 
-      if (routingControl) map.removeControl(routingControl);
-
-      routingControl = L.Routing.control({
-        waypoints: [
-          L.latLng(carPos.lat, carPos.lng),
-          L.latLng(destination[0], destination[1])
-        ],
-        lineOptions: { addWaypoints: false, styles: [{color: 'blue', opacity: 0.5, weight: 4}] },
-        routeWhileDragging: false,
-        show: false,
-        addWaypoints: false,
-        fitSelectedRoutes: false,
-        createMarker: () => null
-      }).addTo(map);
-
-      routingControl.on('routesfound', e => {
-        const route = e.routes[0];
-        const coords = route.coordinates;
-        animateAlongRoad(coords);
-      });
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          if (!data.routes || data.routes.length === 0) return;
+          const coords = data.routes[0].geometry.coordinates;
+          if (routeLine) map.removeLayer(routeLine);
+          routeLine = L.polyline(coords.map(c => [c[1], c[0]]), { color: 'blue', weight: 4, opacity: 0.4 }).addTo(map);
+          animateAlong(coords);
+        })
+        .catch(err => console.error("Routing error:", err));
     }
 
-    function animateAlongRoad(coords) {
-      let i = 0;
+    function animateAlong(coords) {
       isMoving = true;
-      const interval = setInterval(() => {
-        if (i >= coords.length) {
-          clearInterval(interval);
+      let i = 0;
+      const step = 2; // smaller = slower
+      const total = coords.length;
+
+      const move = setInterval(() => {
+        if (i >= total) {
+          clearInterval(move);
           isMoving = false;
           return;
         }
-        const p = coords[i];
-        carPos = { lat: p.lat, lng: p.lng };
-        carMarker.setLatLng(p);
+        const [lng, lat] = coords[i];
+        carPos = { lat, lng };
+        carMarker.setLatLng([lat, lng]);
+        map.panTo([lat, lng], { animate: true, duration: 0.5 });
         checkNearbyObjects();
-        i++;
-      }, 20); // speed: smaller = faster
+        i += step;
+      }, 50);
     }
 
     // --- Controls ---
     document.addEventListener('keydown', e => {
-      if (e.key === 'ArrowUp' || e.key === 'w') driveTo(0.2, 0);
-      if (e.key === 'ArrowDown' || e.key === 's') driveTo(-0.2, 0);
-      if (e.key === 'ArrowLeft' || e.key === 'a') driveTo(0, -0.2);
-      if (e.key === 'ArrowRight' || e.key === 'd') driveTo(0, 0.2);
+      const moveDist = 0.3; // degrees
+      if (e.key === 'ArrowUp' || e.key === 'w') driveTo(carPos.lat + moveDist, carPos.lng);
+      if (e.key === 'ArrowDown' || e.key === 's') driveTo(carPos.lat - moveDist, carPos.lng);
+      if (e.key === 'ArrowLeft' || e.key === 'a') driveTo(carPos.lat, carPos.lng - moveDist);
+      if (e.key === 'ArrowRight' || e.key === 'd') driveTo(carPos.lat, carPos.lng + moveDist);
+    });
+
+    // --- Click to drive ---
+    map.on('click', e => {
+      const { lat, lng } = e.latlng;
+      driveTo(lat, lng);
     });
   </script>
 </body>
