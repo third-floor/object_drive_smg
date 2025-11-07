@@ -1,0 +1,128 @@
+[
+  {
+    "title": "Cockroft and Walton's Accelerator",
+    "description": "Portion of the original apparatus used by Drs. Cockcroft and Walton for the artificial disintegration of the elements by swift protons, including accelerating tube and fittings, discharge tube, target and cap carrying mica window. The observing cabin and microscope are not original.",
+    "place": "Cambridge",
+    "category": "Nuclear Physics",
+    "maker": "Cockcroft, Sir John Douglas; Walton, Ernest Thomas Sinton",
+    "lat": 52.2055314,
+    "lng": 0.1186637
+  },
+  {
+    "title": "Canister-type Gas Mask",
+    "description": "Canister-type gas mask, rubber mask with celluloid eyepieces, metal canvas straps, German,  1916-1918",
+    "place": "Germany",
+    "category": "Public Health & Hygiene",
+    "maker": "",
+    "lat": 52.5393951,
+    "lng": 13.2312323
+  },
+  {
+    "title": "Pharmaceuticals - skin cream",
+    "description": "Pharmaceuticals - skin cream, barrier, made by Stockhausen Krefeld in Germany,",
+    "place": "Germany",
+    "category": "Industrial Chemistry",
+    "maker": "Stockhausen Krefeld",
+    "lat": 52.5393951,
+    "lng": 13.2312323
+  },
+  {
+    "title": "Magnetic Pocket Address Books",
+    "description": "Three magnetic folding pocket address books, branded with Ferranti International logo.",
+    "place": "Taiwan",
+    "category": "Computing & Data Processing",
+    "maker": "Ferranti Computer Systems Ltd; Ferranti International plc",
+    "lat": 51.4392694,
+    "lng": 0.3622516
+  },
+  {
+    "title": "Corflex Photograph Viewer",
+    "description": "Small pink and white plastic Corflex viewer in shape of camera on key ring made by C.V.M; contains various images from Italian tourist destinations.",
+    "place": "Italy",
+    "category": "Photographic Technology",
+    "maker": "CVM",
+    "lat": 54.7690311,
+    "lng": -1.5914109
+  },
+  {
+    "title": "Changing box",
+    "description": "Changing box, made by LPL in Japan, 1975",
+    "place": "Japan",
+    "category": "Photographic Technology",
+    "maker": "LPL",
+    "lat": 51.608374,
+    "lng": -2.2301613
+  },
+  {
+    "title": "Volume of working drawings of scientific instruments",
+    "description": "[Volume of working drawings of scientific instruments, chiefly electrical, by James White et al. Most are pencil sketches or drawings; a few are line drawings, some with wash. Earliest and latest dates cited are 1863 and 1908. White of Glasgow was the sole manufacturer of electrical instruments for William Thomson, later Lord Kelvin. Some of these drawings are of instruments for him (long-range electrometer; tide-gauge)]",
+    "place": "Glasgow, Glasgow, Scotland, United Kingdom",
+    "category": "Archive",
+    "maker": "White, James, 1824-1864",
+    "lat": 55.861155,
+    "lng": -4.2501687
+  },
+  {
+    "title": "Alliance and Dublin Consumers' Gas Company bill",
+    "description": "[Alliance and Dublin Consumers' Gas Company bill, re customer's domestic gas consumption. 1914]",
+    "place": "Ireland",
+    "category": "Archive",
+    "maker": "Alliance and Dublin Consumers' Gas Company",
+    "lat": 52.0600343,
+    "lng": -0.347478
+  },
+  {
+    "title": "Transit document for Italian Mail Service",
+    "description": "[Transit document for Italian Mail Service. Letterpress with ms. additions / l'Amministrazione Generale delle Poste del Regno di Napoli. 1812]",
+    "place": "Italy",
+    "category": "Archive",
+    "maker": "Amministrazione Generale delle Poste del Regno di Napoli",
+    "lat": 54.7690311,
+    "lng": -1.5914109
+  },
+  {
+    "title": "Way-bill for United States Mail Coach journey from Boston to Groton and Keene",
+    "description": "[Way-bill for United States Mail Coach journey from Boston to Groton and Keene. 1843 Jan 9. Printed pro forma with ms. additions]",
+    "place": "United States",
+    "category": "Archive",
+    "maker": "",
+    "lat": 38.0266291,
+    "lng": -84.5047222
+  },
+  {
+    "title": "Photograph album / L.C. Whittley. 1925 Jan-1926 Jan. The album contains photographs taken by Whittley in Bombay",
+    "description": "[Photograph album / L.C. Whittley. 1925 Jan-1926 Jan. The album contains photographs taken by Whittley in Bombay, Shillong, Assam, Calcutta and Nichuguard whilst in the employ of S. Pearson and Son Ltd. 77 photos on 24 leaves]",
+    "place": "India",
+    "category": "Archive",
+    "maker": "Whittley, Leonard Charles",
+    "lat": 30.0417376,
+    "lng": 79.089691
+  },
+  {
+    "title": "General arrangement drawing of the \"Wight\" Seaplane",
+    "description": "[General arrangement drawing of the \"Wight\" Seaplane. Photo-printed on linen paper. Front & side elevations, plan 1:24; arrangement of instruments 1:32. Dated 1913 Nov 13; stamped Samuel White & Co Ltd, Cowes, I.O.W., 1916 Apr 6]",
+    "place": "East Cowes",
+    "category": "Archive",
+    "maker": "J. Samuel White & Co. Limited",
+    "lat": 50.7594841,
+    "lng": -1.2852106
+  },
+  {
+    "title": "Drawing, Torpedo boat destroyer 'Nembo' class.",
+    "description": "[Drawing] Torpedo boat destroyer. 'Nembo' class. For Royal Italian Navy / Raphael Piscettaro, Naples. 1908. [Pen & ink drawing with over-washes, mounted, glazed and framed. Longitudinal elevation and plan, both showing internal construction. Scale 3/8\" : 1']",
+    "place": "Italy",
+    "category": "Archive",
+    "maker": "Piscettaro, Raphael",
+    "lat": 54.7690311,
+    "lng": -1.5914109
+  },
+  {
+    "title": "French technical drawing of a pantograph",
+    "description": "[French technical drawing of a pantograph, 17--. Drawing, ink and colour wash, bears ms. annotations. With \"Explication de la feuille de dessein\", 2p. ms. in French, being a pantograph specification), 17--]",
+    "place": "France",
+    "category": "Archive",
+    "maker": "",
+    "lat": 51.5029386,
+    "lng": -0.0014592
+  }
+]
