@@ -17,10 +17,11 @@ html, body { margin:0; height:100%; overflow:hidden; font-family:system-ui,sans-
 
 .hud {
   position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
-  background:rgba(255,255,255,0.9); border-radius:12px;
+  background:rgba(255,255,255,0.95); border-radius:12px;
   box-shadow:0 2px 8px rgba(0,0,0,0.3);
   padding:8px 16px; z-index:1000;
 }
+
 #loading {
   display:none; position:absolute; top:0; left:0; width:100%; height:100%;
   background:rgba(255,255,255,0.9); z-index:2000;
@@ -33,24 +34,54 @@ html, body { margin:0; height:100%; overflow:hidden; font-family:system-ui,sans-
   position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
   width:300px; height:300px; pointer-events:none; z-index:1500;
 }
+
 .choice-btn {
   position:absolute; pointer-events:auto;
   background:orange; border:none; color:#fff;
   border-radius:8px; padding:6px 10px; cursor:pointer;
-  transition:0.2s; font-size:0.9em;
+  transition:0.2s; font-size:0.9em; box-shadow:0 2px 6px rgba(0,0,0,0.3);
 }
-.choice-btn:hover { background:darkorange; }
+.choice-btn:hover { background:darkorange; transform:scale(1.1); }
+
+.highlight-marker {
+  animation: pulse 1.5s infinite;
+  box-shadow:0 0 10px 4px orange;
+}
+@keyframes pulse {
+  0% { box-shadow:0 0 6px 2px orange; }
+  50% { box-shadow:0 0 14px 6px orange; }
+  100% { box-shadow:0 0 6px 2px orange; }
+}
+
+#fastTravelPanel {
+  position:absolute; top:10px; left:50%; transform:translateX(-50%);
+  background:rgba(255,255,255,0.95); padding:6px 12px; border-radius:8px;
+  z-index:1200; display:flex; gap:6px;
+}
+#fastTravelPanel input {
+  padding:6px; width:220px; border:1px solid #ccc; border-radius:6px;
+}
+#fastTravelPanel button {
+  background:#0078d7; border:none; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer;
+}
+#fastTravelPanel button:hover { background:#005fa3; }
 </style>
 </head>
 <body>
 <div id="map"></div>
+
+<div id="fastTravelPanel">
+  <input type="text" id="stationSearch" placeholder="Fast travel to station..." />
+  <button id="travelBtn">Go</button>
+</div>
+
 <div class="hud">📍 Station: <b id="stationDisplay">Loading...</b></div>
 <div id="loading"><span>🚆</span><div>Travelling to next station...</div></div>
 <div id="choices"></div>
 
 <script>
 // === Map setup ===
-const map = L.map('map',{keyboard:false}).setView([53.5,-2.5],6);
+const map = L.map('map',{keyboard:false}).setView([53.5,-2.5],8);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
   attribution:'&copy; OpenStreetMap contributors'
 }).addTo(map);
@@ -63,7 +94,8 @@ const hudStation=document.getElementById('stationDisplay');
 const loadingScreen=document.getElementById('loading');
 const choiceContainer=document.getElementById('choices');
 
-let railways=[], stations=[], objects=[], objectMarkers=[], currentStation=null;
+let railways=[], stations=[], objects=[], objectMarkers=[], stationMarkers=[];
+let currentStation=null, highlightLine=null;
 
 // === Load all data ===
 Promise.all([
@@ -79,14 +111,16 @@ Promise.all([
   }));
   objects = objectData;
 
-  // Draw railway lines
-  L.geoJSON(railData, { color: '#555', weight: 2 }).addTo(map);
+  // Draw railways
+  L.geoJSON(railData, { color: '#999', weight: 1 }).addTo(map);
 
-  // Draw stations
+  // Draw station markers (invisible initially)
   stations.forEach(s=>{
-    L.circleMarker([s.lat,s.lng],{
+    const marker = L.circleMarker([s.lat,s.lng],{
       radius:4,color:'#0044cc',fillColor:'#00aaff',fillOpacity:0.9
-    }).addTo(map).bindTooltip(s.name);
+    }).bindTooltip(s.name);
+    marker.addTo(map);
+    stationMarkers.push({station:s, marker});
   });
 
   // Place object markers
@@ -98,12 +132,12 @@ Promise.all([
     objectMarkers.push(m);
   });
 
-  // Start train at nearest station
+  // Start at nearest station
   const start = nearestStation({lat:53.5,lng:-2.5});
   arriveAtStation(start);
 });
 
-// === Helper functions ===
+// === Helpers ===
 function nearestStation(pos){
   let nearest=null, min=Infinity;
   stations.forEach(s=>{
@@ -113,13 +147,10 @@ function nearestStation(pos){
   return nearest;
 }
 
-// Find connected stations using shared railway lines
 function connectedStations(station){
-  const pt = turf.point([station.lng, station.lat]);
   const connected = new Set();
   railways.forEach(line=>{
     const coords=line.geometry.coordinates;
-    // Check if this line passes near this station
     const onLine = coords.some(c=>map.distance([station.lat,station.lng],[c[1],c[0]])<500);
     if(onLine){
       stations.forEach(s2=>{
@@ -133,45 +164,70 @@ function connectedStations(station){
   return Array.from(connected);
 }
 
-// Reveal object info within 10 miles (≈16 km)
 function revealNearbyObjects(station){
   const mile=1609.34;
   objectMarkers.forEach((m,i)=>{
     const o=objects[i];
     const d=map.distance([station.lat,station.lng],[o.lat,o.lng]);
-    if(d<10*mile){
-      m.openPopup();
+    if(d<10*mile){ m.openPopup(); } else { m.closePopup(); }
+  });
+}
+
+// Filter stations by 40-mile radius
+function updateVisibleStations(center){
+  const mile=1609.34;
+  stationMarkers.forEach(({station, marker})=>{
+    const d=map.distance([center.lat,center.lng],[station.lat,station.lng]);
+    if(d<40*mile){
+      marker.addTo(map);
     } else {
-      m.closePopup();
+      map.removeLayer(marker);
     }
   });
 }
 
-// Main station arrival function
+// === Main station logic ===
 function arriveAtStation(station){
   currentStation=station;
   hudStation.textContent=station.name;
   trainMarker.setLatLng([station.lat,station.lng]);
-  map.setView([station.lat,station.lng],9);
+  map.setView([station.lat,station.lng],10);
   revealNearbyObjects(station);
+  updateVisibleStations(station);
   showChoices(station);
 }
 
-// Travel between stations with loading animation
 function travelToStation(next){
   loadingScreen.style.display='flex';
   choiceContainer.innerHTML='';
+
+  // Draw highlight line
+  if(highlightLine){ map.removeLayer(highlightLine); }
+  highlightLine = L.polyline([[currentStation.lat,currentStation.lng],[next.lat,next.lng]],{
+    color:'orange',weight:4,opacity:0.8
+  }).addTo(map);
+
   setTimeout(()=>{
     loadingScreen.style.display='none';
+    if(highlightLine){ map.removeLayer(highlightLine); }
     arriveAtStation(next);
   },2000);
 }
 
-// Show direction-based choice buttons (only connected stations)
+// === Choice buttons ===
 function showChoices(station){
   choiceContainer.innerHTML='';
   const connected = connectedStations(station);
   if(connected.length===0) return;
+
+  // Highlight reachable stations
+  stationMarkers.forEach(({station:s, marker})=>{
+    marker.setStyle({color:'#0044cc',fillColor:'#00aaff'});
+  });
+  connected.forEach(dest=>{
+    const sm = stationMarkers.find(x=>x.station===dest);
+    if(sm) sm.marker.setStyle({color:'orange',fillColor:'orange'});
+  });
 
   connected.forEach(dest=>{
     const dx=dest.lng-station.lng;
@@ -190,6 +246,16 @@ function showChoices(station){
     choiceContainer.appendChild(btn);
   });
 }
+
+// === Fast travel search ===
+document.getElementById('travelBtn').onclick=()=>{
+  const query=document.getElementById('stationSearch').value.toLowerCase();
+  if(!query) return;
+  const match=stations.find(s=>s.name.toLowerCase().includes(query));
+  if(match){ travelToStation(match); }
+  else alert("Station not found.");
+};
+
 </script>
 </body>
 </html>
