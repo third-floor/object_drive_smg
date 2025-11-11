@@ -7,6 +7,7 @@
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 
 <style>
 html, body { margin:0; height:100%; overflow:hidden; font-family:system-ui,sans-serif;}
@@ -62,15 +63,24 @@ const hudStation=document.getElementById('stationDisplay');
 const loadingScreen=document.getElementById('loading');
 const choiceContainer=document.getElementById('choices');
 
-let stations=[], objects=[], objectMarkers=[], currentStation=null;
+let railways=[], stations=[], objects=[], objectMarkers=[], currentStation=null;
 
-// Load data
+// === Load all data ===
 Promise.all([
+  fetch('./data/railways_1881.geojson').then(r=>r.json()),
   fetch('./wikidata_train_stations.json').then(r=>r.json()),
   fetch('./objects.json').then(r=>r.json())
-]).then(([stationData, objectData])=>{
-  stations = stationData.map(s=>({name:s.itemLabel, lat:parseFloat(s.lat), lng:parseFloat(s.lon)}));
+]).then(([railData, stationData, objectData])=>{
+  railways = railData.features;
+  stations = stationData.map(s => ({
+    name: s.itemLabel,
+    lat: parseFloat(s.lat),
+    lng: parseFloat(s.lon)
+  }));
   objects = objectData;
+
+  // Draw railway lines
+  L.geoJSON(railData, { color: '#555', weight: 2 }).addTo(map);
 
   // Draw stations
   stations.forEach(s=>{
@@ -82,17 +92,18 @@ Promise.all([
   // Place object markers
   objects.forEach(o=>{
     const m=L.circleMarker([o.lat,o.lng],{radius:5,color:'#aa0000',fillColor:'#ff5555',fillOpacity:0.7})
-      .addTo(map).bindPopup(`<b>${o.title}</b><br>${o.description}<br><i>${o.place}</i>`);
+      .addTo(map)
+      .bindPopup(`<b>${o.title}</b><br>${o.description}<br><i>${o.place}</i>`);
     m.closePopup();
     objectMarkers.push(m);
   });
 
-  // Start nearest
+  // Start train at nearest station
   const start = nearestStation({lat:53.5,lng:-2.5});
   arriveAtStation(start);
 });
 
-// === Helpers ===
+// === Helper functions ===
 function nearestStation(pos){
   let nearest=null, min=Infinity;
   stations.forEach(s=>{
@@ -102,6 +113,41 @@ function nearestStation(pos){
   return nearest;
 }
 
+// Find connected stations using shared railway lines
+function connectedStations(station){
+  const pt = turf.point([station.lng, station.lat]);
+  const connected = new Set();
+  railways.forEach(line=>{
+    const coords=line.geometry.coordinates;
+    // Check if this line passes near this station
+    const onLine = coords.some(c=>map.distance([station.lat,station.lng],[c[1],c[0]])<500);
+    if(onLine){
+      stations.forEach(s2=>{
+        if(s2!==station){
+          const near = coords.some(c=>map.distance([s2.lat,s2.lng],[c[1],c[0]])<500);
+          if(near) connected.add(s2);
+        }
+      });
+    }
+  });
+  return Array.from(connected);
+}
+
+// Reveal object info within 10 miles (≈16 km)
+function revealNearbyObjects(station){
+  const mile=1609.34;
+  objectMarkers.forEach((m,i)=>{
+    const o=objects[i];
+    const d=map.distance([station.lat,station.lng],[o.lat,o.lng]);
+    if(d<10*mile){
+      m.openPopup();
+    } else {
+      m.closePopup();
+    }
+  });
+}
+
+// Main station arrival function
 function arriveAtStation(station){
   currentStation=station;
   hudStation.textContent=station.name;
@@ -111,19 +157,7 @@ function arriveAtStation(station){
   showChoices(station);
 }
 
-function revealNearbyObjects(station){
-  const mile=1609.34;
-  objectMarkers.forEach((m,i)=>{
-    const o=objects[i];
-    const d=map.distance([station.lat,station.lng],[o.lat,o.lng]);
-    if(d<10*mile){ // within 10 miles
-      m.openPopup();
-    } else {
-      m.closePopup();
-    }
-  });
-}
-
+// Travel between stations with loading animation
 function travelToStation(next){
   loadingScreen.style.display='flex';
   choiceContainer.innerHTML='';
@@ -133,20 +167,20 @@ function travelToStation(next){
   },2000);
 }
 
+// Show direction-based choice buttons (only connected stations)
 function showChoices(station){
   choiceContainer.innerHTML='';
-  const nearby = stations.filter(s=>{
-    const d=map.distance([station.lat,station.lng],[s.lat,s.lng]);
-    return d>10000 && d<80000; // between 10km and 80km for practical choices
-  }).slice(0,8); // limit to closest few
+  const connected = connectedStations(station);
+  if(connected.length===0) return;
 
-  nearby.forEach(dest=>{
+  connected.forEach(dest=>{
     const dx=dest.lng-station.lng;
     const dy=dest.lat-station.lat;
-    const angle=Math.atan2(dy,dx); // radians, 0 east
+    const angle=Math.atan2(dy,dx);
     const radius=120;
     const x=150+radius*Math.cos(angle);
     const y=150-radius*Math.sin(angle);
+
     const btn=document.createElement('button');
     btn.className='choice-btn';
     btn.style.left=x+'px';
@@ -156,7 +190,6 @@ function showChoices(station){
     choiceContainer.appendChild(btn);
   });
 }
-
 </script>
 </body>
 </html>
