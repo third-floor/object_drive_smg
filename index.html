@@ -1,214 +1,162 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Historic Rail Explorer 🚆</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Historic Rail Explorer 🚆</title>
 
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Turf.js -->
-  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<style>
+html, body { margin:0; height:100%; overflow:hidden; font-family:system-ui,sans-serif;}
+#map { position:absolute; top:0; bottom:0; left:0; right:0; }
 
-  <style>
-    html, body {
-      margin: 0;
-      height: 100%;
-      overflow: hidden;
-      font-family: system-ui, sans-serif;
-      background: #f8f8f8;
-    }
-    #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; }
+.train-emoji { font-size:48px; transform:translate(-50%,-50%); }
 
-    .train-emoji {
-      font-size: 48px;
-      transform: translate(-50%, -50%);
-    }
+.hud {
+  position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+  background:rgba(255,255,255,0.9); border-radius:12px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.3);
+  padding:8px 16px; z-index:1000;
+}
+#loading {
+  display:none; position:absolute; top:0; left:0; width:100%; height:100%;
+  background:rgba(255,255,255,0.9); z-index:2000;
+  flex-direction:column; justify-content:center; align-items:center;
+  font-size:1.5em;
+}
+#loading span { font-size:64px; margin-bottom:10px; }
 
-    .hud {
-      position: absolute;
-      bottom: 10px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(255,255,255,0.9);
-      border-radius: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      padding: 10px 20px;
-      display: flex;
-      gap: 20px;
-      align-items: center;
-      z-index: 1000;
-    }
-
-    /* Loading screen */
-    #loading {
-      display: none;
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(255,255,255,0.9);
-      z-index: 2000;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      font-size: 1.5em;
-    }
-
-    #loading span {
-      font-size: 64px;
-      margin-bottom: 10px;
-    }
-
-    .choice-button {
-      background: orange;
-      border: none;
-      color: white;
-      border-radius: 8px;
-      padding: 8px 16px;
-      margin: 5px;
-      cursor: pointer;
-      font-size: 1em;
-      transition: 0.2s;
-    }
-    .choice-button:hover {
-      background: darkorange;
-    }
-  </style>
+#choices {
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  width:300px; height:300px; pointer-events:none; z-index:1500;
+}
+.choice-btn {
+  position:absolute; pointer-events:auto;
+  background:orange; border:none; color:#fff;
+  border-radius:8px; padding:6px 10px; cursor:pointer;
+  transition:0.2s; font-size:0.9em;
+}
+.choice-btn:hover { background:darkorange; }
+</style>
 </head>
 <body>
-  <div id="map"></div>
+<div id="map"></div>
+<div class="hud">📍 Station: <b id="stationDisplay">Loading...</b></div>
+<div id="loading"><span>🚆</span><div>Travelling to next station...</div></div>
+<div id="choices"></div>
 
-  <div class="hud">
-    📍 Station: <b id="stationDisplay">Loading...</b>
-  </div>
+<script>
+// === Map setup ===
+const map = L.map('map',{keyboard:false}).setView([53.5,-2.5],6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  attribution:'&copy; OpenStreetMap contributors'
+}).addTo(map);
 
-  <div id="loading">
-    <span>🚆</span>
-    <div>Travelling to next station...</div>
-  </div>
+// Train icon
+const trainIcon = L.divIcon({className:'',html:'<div class="train-emoji">🚆</div>',iconSize:[48,48],iconAnchor:[24,24]});
+const trainMarker = L.marker([53.5,-2.5],{icon:trainIcon}).addTo(map);
 
-  <script>
-    // === Map setup ===
-    const map = L.map('map', { keyboard: false }).setView([53.5, -2.5], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
+const hudStation=document.getElementById('stationDisplay');
+const loadingScreen=document.getElementById('loading');
+const choiceContainer=document.getElementById('choices');
 
-    const hudStation = document.getElementById('stationDisplay');
-    const loadingScreen = document.getElementById('loading');
+let stations=[], objects=[], objectMarkers=[], currentStation=null;
 
-    const trainIcon = L.divIcon({
-      className: '',
-      html: '<div class="train-emoji">🚆</div>',
-      iconSize: [48, 48],
-      iconAnchor: [24, 24]
-    });
-    const trainMarker = L.marker([53.5, -2.5], { icon: trainIcon }).addTo(map);
+// Load data
+Promise.all([
+  fetch('./wikidata_train_stations.json').then(r=>r.json()),
+  fetch('./objects.json').then(r=>r.json())
+]).then(([stationData, objectData])=>{
+  stations = stationData.map(s=>({name:s.itemLabel, lat:parseFloat(s.lat), lng:parseFloat(s.lon)}));
+  objects = objectData;
 
-    // === Data ===
-    let railways = [];
-    let stations = [];
-    let currentStation = null;
+  // Draw stations
+  stations.forEach(s=>{
+    L.circleMarker([s.lat,s.lng],{
+      radius:4,color:'#0044cc',fillColor:'#00aaff',fillOpacity:0.9
+    }).addTo(map).bindTooltip(s.name);
+  });
 
-    // === Load GeoJSON ===
-    Promise.all([
-      fetch('./data/railways_1881.geojson').then(r => r.json()),
-      fetch('./data/stations_1881.geojson').then(r => r.json())
-    ]).then(([railData, stationData]) => {
-      railways = railData.features;
-      stations = stationData.features.map(f => ({
-        name: f.properties.name || 'Station',
-        lat: f.geometry.coordinates[1],
-        lng: f.geometry.coordinates[0]
-      }));
+  // Place object markers
+  objects.forEach(o=>{
+    const m=L.circleMarker([o.lat,o.lng],{radius:5,color:'#aa0000',fillColor:'#ff5555',fillOpacity:0.7})
+      .addTo(map).bindPopup(`<b>${o.title}</b><br>${o.description}<br><i>${o.place}</i>`);
+    m.closePopup();
+    objectMarkers.push(m);
+  });
 
-      // Draw lines and stations
-      L.geoJSON(railData, { color: '#555', weight: 2 }).addTo(map);
+  // Start nearest
+  const start = nearestStation({lat:53.5,lng:-2.5});
+  arriveAtStation(start);
+});
 
-      stations.forEach(s => {
-        const marker = L.circleMarker([s.lat, s.lng], {
-          radius: 5,
-          color: '#0077cc',
-          fillColor: '#00aaff',
-          fillOpacity: 0.9
-        }).addTo(map).bindTooltip(s.name);
-      });
+// === Helpers ===
+function nearestStation(pos){
+  let nearest=null, min=Infinity;
+  stations.forEach(s=>{
+    const d=map.distance([pos.lat,pos.lng],[s.lat,s.lng]);
+    if(d<min){min=d;nearest=s;}
+  });
+  return nearest;
+}
 
-      // Start game at nearest station
-      const start = nearestStation({ lat: 53.5, lng: -2.5 });
-      arriveAtStation(start);
-    });
+function arriveAtStation(station){
+  currentStation=station;
+  hudStation.textContent=station.name;
+  trainMarker.setLatLng([station.lat,station.lng]);
+  map.setView([station.lat,station.lng],9);
+  revealNearbyObjects(station);
+  showChoices(station);
+}
 
-    // === Helpers ===
-    function nearestStation(pos) {
-      let min = Infinity, nearest = null;
-      stations.forEach(s => {
-        const d = map.distance([pos.lat,pos.lng],[s.lat,s.lng]);
-        if (d < min) { min = d; nearest = s; }
-      });
-      return nearest;
+function revealNearbyObjects(station){
+  const mile=1609.34;
+  objectMarkers.forEach((m,i)=>{
+    const o=objects[i];
+    const d=map.distance([station.lat,station.lng],[o.lat,o.lng]);
+    if(d<10*mile){ // within 10 miles
+      m.openPopup();
+    } else {
+      m.closePopup();
     }
+  });
+}
 
-    function findConnections(station) {
-      const connected = [];
-      railways.forEach(line => {
-        const coords = line.geometry.coordinates;
-        coords.forEach((c, i) => {
-          const [lon, lat] = c;
-          if (map.distance([lat, lon], [station.lat, station.lng]) < 300) {
-            // find nearby stations on same line
-            stations.forEach(s2 => {
-              if (s2 !== station) {
-                const d = coords.some(([lon2, lat2]) =>
-                  map.distance([lat2, lon2], [s2.lat, s2.lng]) < 300
-                );
-                if (d && !connected.includes(s2)) connected.push(s2);
-              }
-            });
-          }
-        });
-      });
-      return connected;
-    }
+function travelToStation(next){
+  loadingScreen.style.display='flex';
+  choiceContainer.innerHTML='';
+  setTimeout(()=>{
+    loadingScreen.style.display='none';
+    arriveAtStation(next);
+  },2000);
+}
 
-    function arriveAtStation(station) {
-      currentStation = station;
-      hudStation.textContent = station.name;
-      trainMarker.setLatLng([station.lat, station.lng]);
-      map.setView([station.lat, station.lng], 13);
+function showChoices(station){
+  choiceContainer.innerHTML='';
+  const nearby = stations.filter(s=>{
+    const d=map.distance([station.lat,station.lng],[s.lat,s.lng]);
+    return d>10000 && d<80000; // between 10km and 80km for practical choices
+  }).slice(0,8); // limit to closest few
 
-      // Offer choices
-      const options = findConnections(station);
-      if (options.length === 0) return;
+  nearby.forEach(dest=>{
+    const dx=dest.lng-station.lng;
+    const dy=dest.lat-station.lat;
+    const angle=Math.atan2(dy,dx); // radians, 0 east
+    const radius=120;
+    const x=150+radius*Math.cos(angle);
+    const y=150-radius*Math.sin(angle);
+    const btn=document.createElement('button');
+    btn.className='choice-btn';
+    btn.style.left=x+'px';
+    btn.style.top=y+'px';
+    btn.textContent=dest.name;
+    btn.onclick=()=>travelToStation(dest);
+    choiceContainer.appendChild(btn);
+  });
+}
 
-      const choiceDiv = L.control({ position: 'topright' });
-      choiceDiv.onAdd = () => {
-        const div = L.DomUtil.create('div');
-        div.innerHTML = `<h4>Choose your next stop:</h4>`;
-        options.forEach(opt => {
-          const btn = document.createElement('button');
-          btn.className = 'choice-button';
-          btn.textContent = opt.name;
-          btn.onclick = () => {
-            map.removeControl(choiceDiv);
-            travelToStation(opt);
-          };
-          div.appendChild(btn);
-        });
-        return div;
-      };
-      choiceDiv.addTo(map);
-    }
-
-    function travelToStation(nextStation) {
-      loadingScreen.style.display = 'flex';
-      setTimeout(() => {
-        loadingScreen.style.display = 'none';
-        arriveAtStation(nextStation);
-      }, 2000);
-    }
-  </script>
+</script>
 </body>
 </html>
