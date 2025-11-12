@@ -10,47 +10,39 @@
 <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 
 <style>
-html, body { margin:0; height:100%; overflow:hidden; font-family:system-ui,sans-serif;}
-#map { position:absolute; top:0; bottom:0; left:0; right:0; }
-
-.train-emoji { font-size:48px; transform:translate(-50%,-50%); }
-
-.hud {
-  position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
-  background:rgba(255,255,255,0.95); border-radius:12px;
-  box-shadow:0 2px 8px rgba(0,0,0,0.3);
-  padding:8px 16px; z-index:1000;
+html,body{margin:0;height:100%;overflow:hidden;font-family:system-ui,sans-serif;}
+#map{position:absolute;top:0;bottom:0;left:0;right:0;}
+.train-emoji{font-size:48px;transform:translate(-50%,-50%);}
+.hud{
+  position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
+  background:rgba(255,255,255,0.95);border-radius:12px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.3);padding:8px 16px;z-index:1000;
 }
-
-#loading {
-  display:none; position:absolute; top:0; left:0; width:100%; height:100%;
-  background:rgba(255,255,255,0.9); z-index:2000;
-  flex-direction:column; justify-content:center; align-items:center;
-  font-size:1.5em;
+#loading{
+  display:none;position:absolute;top:0;left:0;width:100%;height:100%;
+  background:rgba(255,255,255,0.9);z-index:2000;
+  flex-direction:column;justify-content:center;align-items:center;font-size:1.5em;
 }
-#loading span { font-size:64px; margin-bottom:10px; }
-
-.choice-btn {
-  position:absolute; pointer-events:auto;
-  background:orange; border:none; color:#fff;
-  border-radius:8px; padding:6px 10px; cursor:pointer;
-  transition:0.2s; font-size:0.9em; box-shadow:0 2px 6px rgba(0,0,0,0.3);
-  z-index:1600;
+#loading span{font-size:64px;margin-bottom:10px;}
+.choice-btn{
+  position:absolute;pointer-events:auto;background:orange;border:none;color:#fff;
+  border-radius:8px;padding:6px 10px;cursor:pointer;transition:0.2s;
+  font-size:0.9em;box-shadow:0 2px 6px rgba(0,0,0,0.3);z-index:1600;
 }
-.choice-btn:hover { background:darkorange; transform:scale(1.1); }
-
-#fastTravelPanel {
-  position:absolute; top:10px; left:50%; transform:translateX(-50%);
-  background:rgba(255,255,255,0.95); padding:6px 12px; border-radius:8px;
-  z-index:1200; display:flex; gap:6px;
+.choice-btn:hover{background:darkorange;transform:scale(1.1);}
+#fastTravelPanel{
+  position:absolute;top:10px;left:50%;transform:translateX(-50%);
+  background:rgba(255,255,255,0.95);padding:6px 12px;border-radius:8px;
+  z-index:1200;display:flex;gap:6px;
 }
-#fastTravelPanel input {
-  padding:6px; width:220px; border:1px solid #ccc; border-radius:6px;
+#fastTravelPanel input{
+  padding:6px;width:220px;border:1px solid #ccc;border-radius:6px;
 }
-#fastTravelPanel button {
-  background:#0078d7; border:none; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer;
+#fastTravelPanel button{
+  background:#0078d7;border:none;color:#fff;padding:6px 10px;
+  border-radius:6px;cursor:pointer;
 }
-#fastTravelPanel button:hover { background:#005fa3; }
+#fastTravelPanel button:hover{background:#005fa3;}
 </style>
 </head>
 <body>
@@ -66,182 +58,157 @@ html, body { margin:0; height:100%; overflow:hidden; font-family:system-ui,sans-
 
 <script>
 // === Map setup ===
-const map = L.map('map',{keyboard:false}).setView([53.5,-2.5],8);
+const map=L.map('map',{keyboard:false}).setView([53.5,-2.5],8);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
   attribution:'&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-// Train icon
-const trainIcon = L.divIcon({
-  className:'',html:'<div class="train-emoji">🚆</div>',
-  iconSize:[48,48],iconAnchor:[24,24]
-});
-const trainMarker = L.marker([53.5,-2.5],{icon:trainIcon}).addTo(map);
+const trainIcon=L.divIcon({className:'',html:'<div class="train-emoji">🚆</div>',iconSize:[48,48],iconAnchor:[24,24]});
+const trainMarker=L.marker([53.5,-2.5],{icon:trainIcon}).addTo(map);
 
 const hudStation=document.getElementById('stationDisplay');
 const loadingScreen=document.getElementById('loading');
-
-let railways=[], stations=[], objects=[], objectMarkers=[], stationMarkers=[];
-let currentStation=null, highlightLine=null;
-let choiceButtons=[];
+let railways=[],stations=[],objects=[],objectMarkers=[],stationMarkers=[];
+let currentStation=null,highlightLine=null,choiceButtons=[];
 
 // === Load data ===
 Promise.all([
-  fetch('./data/railways_1881.geojson').then(r=>r.json()),
-  fetch('./wikidata_train_stations.json').then(r=>r.json()),
-  fetch('./objects.json').then(r=>r.json())
-]).then(([railData, stationData, objectData])=>{
-  railways = railData.features;
-  stations = stationData.map(s => ({
-    name: s.itemLabel,
-    lat: parseFloat(s.lat),
-    lng: parseFloat(s.lon)
-  }));
-  objects = objectData;
+  fetch('./data/railways_1881.geojson').then(r=>r.ok?r.json():[]),
+  fetch('./wikidata_train_stations.json').then(r=>r.ok?r.json():[]),
+  fetch('./objects.json').then(r=>r.ok?r.json():[])
+]).then(([railData,stationData,objectData])=>{
+  railways=(railData?.features||[]).filter(f=>f.geometry?.coordinates);
+  stations=(stationData||[]).map(s=>({
+    name:s.itemLabel,
+    lat:parseFloat(s.lat),
+    lng:parseFloat(s.lon)
+  })).filter(s=>!isNaN(s.lat)&&!isNaN(s.lng));
+  objects=(objectData||[]);
 
-  // Draw railways clearly visible
-  L.geoJSON(railData, { color:'#444', weight:2, opacity:0.8 }).addTo(map);
-
-  // Draw stations
+  // Draw layers
+  if(railways.length)L.geoJSON(railways,{color:'#444',weight:2,opacity:0.8}).addTo(map);
   stations.forEach(s=>{
-    const marker = L.circleMarker([s.lat,s.lng],{
-      radius:4,color:'#0044cc',fillColor:'#00aaff',fillOpacity:0.9
-    }).bindTooltip(s.name);
-    marker.addTo(map);
-    stationMarkers.push({station:s, marker});
+    const m=L.circleMarker([s.lat,s.lng],{radius:4,color:'#0044cc',fillColor:'#00aaff',fillOpacity:0.9})
+      .bindTooltip(s.name).addTo(map);
+    stationMarkers.push({station:s,marker:m});
   });
-
-  // Draw object markers
   objects.forEach(o=>{
-    const m=L.circleMarker([o.lat,o.lng],{
-      radius:5,color:'#aa0000',fillColor:'#ff5555',fillOpacity:0.7
-    }).addTo(map)
-     .bindPopup(`<b>${o.title}</b><br>${o.description}<br><i>${o.place}</i>`);
-    m.closePopup();
-    objectMarkers.push(m);
+    const m=L.circleMarker([o.lat,o.lng],{radius:5,color:'#aa0000',fillColor:'#ff5555',fillOpacity:0.7})
+      .bindPopup(`<b>${o.title}</b><br>${o.description}<br><i>${o.place}</i>`).addTo(map);
+    m.closePopup();objectMarkers.push(m);
   });
 
-  const start = nearestStation({lat:53.5,lng:-2.5});
+  const start=nearestStation({lat:53.5,lng:-2.5});
   arriveAtStation(start);
-});
+}).catch(e=>console.error("Data load error:",e));
 
-// === Helpers ===
+// === Utility ===
 function nearestStation(pos){
-  let nearest=null, min=Infinity;
-  stations.forEach(s=>{
+  let nearest=null,min=Infinity;
+  for(const s of stations){
     const d=map.distance([pos.lat,pos.lng],[s.lat,s.lng]);
     if(d<min){min=d;nearest=s;}
-  });
-  return nearest;
+  }
+  return nearest||stations[0];
 }
 
-// Enhanced network merging: joins nearby lines by any segment proximity
+// Merge lines by proximity without infinite recursion
 function expandConnectedLines(line){
-  const connected = [line];
-  let added = true;
-  while(added){
-    added=false;
+  const connected=new Set([line]);
+  const maxDepth=500;
+  let changed=true,depth=0;
+  while(changed && depth<maxDepth){
+    changed=false;depth++;
     for(const other of railways){
-      if(connected.includes(other)) continue;
-      if(linesClose(connected, other)){
-        connected.push(other);
-        added=true;
+      if(connected.has(other))continue;
+      if(linesClose(connected,other)){
+        connected.add(other);changed=true;
       }
     }
   }
-  return connected;
+  return Array.from(connected);
 }
-function linesClose(lines, candidate){
+function linesClose(lines,candidate){
   const tol=300; // meters
   for(const line of lines){
-    const a=line.geometry.coordinates;
-    const b=candidate.geometry.coordinates;
-    for(let i=0;i<a.length;i+=Math.max(1,Math.floor(a.length/5))){
-      for(let j=0;j<b.length;j+=Math.max(1,Math.floor(b.length/5))){
+    const a=line.geometry.coordinates,b=candidate.geometry.coordinates;
+    if(!a||!b)continue;
+    for(let i=0;i<a.length;i+=Math.max(1,Math.floor(a.length/10))){
+      for(let j=0;j<b.length;j+=Math.max(1,Math.floor(b.length/10))){
         const d=map.distance([a[i][1],a[i][0]],[b[j][1],b[j][0]]);
-        if(d<tol) return true;
+        if(d<tol)return true;
       }
     }
   }
   return false;
 }
 
-// Improved connection detection using merged lines
+// Find connected stations along merged lines
 function connectedStations(station){
-  const connected = new Set();
-  const tolerance = 1500;
-  const pt = turf.point([station.lng, station.lat]);
-
-  railways.forEach(line=>{
-    const geom = turf.lineString(line.geometry.coordinates);
-    const snap1 = turf.nearestPointOnLine(geom, pt);
-    if(snap1.properties.dist*1000 < tolerance){
-      const network = expandConnectedLines(line);
-      const allCoords = network.flatMap(f=>f.geometry.coordinates);
-      const bigGeom = turf.lineString(allCoords);
-
-      const projections = stations.map(s2=>{
+  const connected=new Set();
+  const tolerance=1500;
+  const pt=turf.point([station.lng,station.lat]);
+  for(const line of railways){
+    const geom=turf.lineString(line.geometry.coordinates);
+    const snap1=turf.nearestPointOnLine(geom,pt);
+    if(snap1.properties.dist*1000<tolerance){
+      const network=expandConnectedLines(line);
+      const coords=network.flatMap(f=>f.geometry.coordinates||[]);
+      const big=turf.lineString(coords);
+      const projections=stations.map(s2=>{
         const p2=turf.point([s2.lng,s2.lat]);
-        const snap2=turf.nearestPointOnLine(bigGeom,p2);
-        return {s2, dist:snap2.properties.dist*1000, loc:snap2.properties.location};
-      }).filter(p=>p.dist<tolerance)
-        .sort((a,b)=>a.loc-b.loc);
-
-      const idx = projections.findIndex(p=>p.s2===station);
+        const snap2=turf.nearestPointOnLine(big,p2);
+        return {s2,dist:snap2.properties.dist*1000,loc:snap2.properties.location};
+      }).filter(p=>p.dist<tolerance).sort((a,b)=>a.loc-b.loc);
+      const idx=projections.findIndex(p=>p.s2===station);
       if(idx!==-1){
-        const prev=projections[idx-1], next=projections[idx+1];
-        if(prev) connected.add(prev.s2);
-        if(next) connected.add(next.s2);
+        if(projections[idx-1])connected.add(projections[idx-1].s2);
+        if(projections[idx+1])connected.add(projections[idx+1].s2);
       }
     }
-  });
+  }
   return Array.from(connected);
 }
 
-// Reveal nearby objects
+// === Gameplay ===
 function revealNearbyObjects(station){
   const mile=1609.34;
   objectMarkers.forEach((m,i)=>{
-    const o=objects[i];
+    const o=objects[i];if(!o)return;
     const d=map.distance([station.lat,station.lng],[o.lat,o.lng]);
-    if(d<10*mile){ m.openPopup(); } else { m.closePopup(); }
+    if(d<10*mile)m.openPopup();else m.closePopup();
   });
 }
-
-// Filter visible stations
 function updateVisibleStations(center){
   const mile=1609.34;
-  stationMarkers.forEach(({station, marker})=>{
+  stationMarkers.forEach(({station,marker})=>{
     const d=map.distance([center.lat,center.lng],[station.lat,station.lng]);
-    if(d<40*mile){ marker.addTo(map); } else { map.removeLayer(marker); }
+    if(d<40*mile)marker.addTo(map);else map.removeLayer(marker);
   });
 }
-
-// === Main functions ===
 function arriveAtStation(station){
+  if(!station)return;
   currentStation=station;
   hudStation.textContent=station.name;
   trainMarker.setLatLng([station.lat,station.lng]);
-  map.setView([station.lat,station.lng],14); // closer zoom
+  map.setView([station.lat,station.lng],14);
   revealNearbyObjects(station);
   updateVisibleStations(station);
   showChoices(station);
 }
-
 function travelToStation(next){
   loadingScreen.style.display='flex';
   choiceButtons.forEach(b=>b.btn.remove());
   choiceButtons=[];
-  if(highlightLine){ map.removeLayer(highlightLine); }
+  if(highlightLine)map.removeLayer(highlightLine);
   highlightLine=L.polyline([[currentStation.lat,currentStation.lng],[next.lat,next.lng]],{
     color:'orange',weight:4,opacity:0.8
   }).addTo(map);
-
   setTimeout(()=>{
     loadingScreen.style.display='none';
-    if(highlightLine){ map.removeLayer(highlightLine); }
+    if(highlightLine)map.removeLayer(highlightLine);
     arriveAtStation(next);
-  },2000);
+  },1500);
 }
 
 // === Choice buttons ===
@@ -249,16 +216,13 @@ function showChoices(station){
   choiceButtons.forEach(b=>b.btn.remove());
   choiceButtons=[];
   const connected=connectedStations(station);
-  if(connected.length===0) return;
-
-  stationMarkers.forEach(({station:s,marker})=>{
-    marker.setStyle({color:'#0044cc',fillColor:'#00aaff'});
-  });
+  if(!connected.length)return;
+  stationMarkers.forEach(({station:s,marker})=>
+    marker.setStyle({color:'#0044cc',fillColor:'#00aaff'}));
   connected.forEach(dest=>{
     const sm=stationMarkers.find(x=>x.station===dest);
-    if(sm) sm.marker.setStyle({color:'orange',fillColor:'orange'});
+    if(sm)sm.marker.setStyle({color:'orange',fillColor:'orange'});
   });
-
   connected.forEach(dest=>{
     const latlng=L.latLng(dest.lat,dest.lng);
     const btn=document.createElement('button');
@@ -270,24 +234,21 @@ function showChoices(station){
   });
   repositionButtons();
 }
-
 function repositionButtons(){
-  if(!choiceButtons.length) return;
   choiceButtons.forEach(({btn,latlng})=>{
-    const point=map.latLngToContainerPoint(latlng);
-    btn.style.left=(point.x-60)+'px';
-    btn.style.top=(point.y-25)+'px';
+    const pt=map.latLngToContainerPoint(latlng);
+    btn.style.left=(pt.x-60)+'px';
+    btn.style.top=(pt.y-25)+'px';
   });
 }
-map.on('zoom move', repositionButtons);
+map.on('zoom move',repositionButtons);
 
 // === Fast travel ===
 document.getElementById('travelBtn').onclick=()=>{
   const q=document.getElementById('stationSearch').value.toLowerCase();
-  if(!q) return;
+  if(!q)return;
   const match=stations.find(s=>s.name.toLowerCase().includes(q));
-  if(match){ travelToStation(match); }
-  else alert("Station not found.");
+  if(match)travelToStation(match);else alert("Station not found.");
 };
 </script>
 </body>
