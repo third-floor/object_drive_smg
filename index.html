@@ -30,16 +30,12 @@ html, body { margin:0; height:100%; overflow:hidden; font-family:system-ui,sans-
 }
 #loading span { font-size:64px; margin-bottom:10px; }
 
-#choices {
-  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-  width:300px; height:300px; pointer-events:none; z-index:1500;
-}
-
 .choice-btn {
   position:absolute; pointer-events:auto;
   background:orange; border:none; color:#fff;
   border-radius:8px; padding:6px 10px; cursor:pointer;
   transition:0.2s; font-size:0.9em; box-shadow:0 2px 6px rgba(0,0,0,0.3);
+  z-index:1600;
 }
 .choice-btn:hover { background:darkorange; transform:scale(1.1); }
 
@@ -67,7 +63,6 @@ html, body { margin:0; height:100%; overflow:hidden; font-family:system-ui,sans-
 
 <div class="hud">📍 Station: <b id="stationDisplay">Loading...</b></div>
 <div id="loading"><span>🚆</span><div>Travelling to next station...</div></div>
-<div id="choices"></div>
 
 <script>
 // === Map setup ===
@@ -85,12 +80,12 @@ const trainMarker = L.marker([53.5,-2.5],{icon:trainIcon}).addTo(map);
 
 const hudStation=document.getElementById('stationDisplay');
 const loadingScreen=document.getElementById('loading');
-const choiceContainer=document.getElementById('choices');
 
 let railways=[], stations=[], objects=[], objectMarkers=[], stationMarkers=[];
 let currentStation=null, highlightLine=null;
+let choiceButtons=[];
 
-// === Load all data ===
+// === Load data ===
 Promise.all([
   fetch('./data/railways_1881.geojson').then(r=>r.json()),
   fetch('./wikidata_train_stations.json').then(r=>r.json()),
@@ -104,12 +99,10 @@ Promise.all([
   }));
   objects = objectData;
 
-  // === Draw railways clearly visible ===
-  L.geoJSON(railData, {
-    color: '#444', weight: 2, opacity: 0.8
-  }).addTo(map);
+  // Draw railways clearly visible
+  L.geoJSON(railData, { color:'#444', weight:2, opacity:0.8 }).addTo(map);
 
-  // === Draw stations ===
+  // Draw stations
   stations.forEach(s=>{
     const marker = L.circleMarker([s.lat,s.lng],{
       radius:4,color:'#0044cc',fillColor:'#00aaff',fillOpacity:0.9
@@ -118,7 +111,7 @@ Promise.all([
     stationMarkers.push({station:s, marker});
   });
 
-  // === Draw object markers ===
+  // Draw object markers
   objects.forEach(o=>{
     const m=L.circleMarker([o.lat,o.lng],{
       radius:5,color:'#aa0000',fillColor:'#ff5555',fillOpacity:0.7
@@ -128,7 +121,6 @@ Promise.all([
     objectMarkers.push(m);
   });
 
-  // Start at nearest station
   const start = nearestStation({lat:53.5,lng:-2.5});
   arriveAtStation(start);
 });
@@ -143,31 +135,70 @@ function nearestStation(pos){
   return nearest;
 }
 
-// === Improved connection detection using Turf nearestPointOnLine ===
+// Enhanced network merging: joins nearby lines by any segment proximity
+function expandConnectedLines(line){
+  const connected = [line];
+  let added = true;
+  while(added){
+    added=false;
+    for(const other of railways){
+      if(connected.includes(other)) continue;
+      if(linesClose(connected, other)){
+        connected.push(other);
+        added=true;
+      }
+    }
+  }
+  return connected;
+}
+function linesClose(lines, candidate){
+  const tol=300; // meters
+  for(const line of lines){
+    const a=line.geometry.coordinates;
+    const b=candidate.geometry.coordinates;
+    for(let i=0;i<a.length;i+=Math.max(1,Math.floor(a.length/5))){
+      for(let j=0;j<b.length;j+=Math.max(1,Math.floor(b.length/5))){
+        const d=map.distance([a[i][1],a[i][0]],[b[j][1],b[j][0]]);
+        if(d<tol) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Improved connection detection using merged lines
 function connectedStations(station){
   const connected = new Set();
-  const tolerance = 1500; // meters
+  const tolerance = 1500;
   const pt = turf.point([station.lng, station.lat]);
 
   railways.forEach(line=>{
     const geom = turf.lineString(line.geometry.coordinates);
-    const snapped = turf.nearestPointOnLine(geom, pt);
-    if(snapped.properties.dist * 1000 < tolerance){
-      // This station belongs to this line
-      stations.forEach(s2=>{
-        if(s2===station) return;
-        const pt2 = turf.point([s2.lng, s2.lat]);
-        const snap2 = turf.nearestPointOnLine(geom, pt2);
-        if(snap2.properties.dist * 1000 < tolerance){
-          connected.add(s2);
-        }
-      });
+    const snap1 = turf.nearestPointOnLine(geom, pt);
+    if(snap1.properties.dist*1000 < tolerance){
+      const network = expandConnectedLines(line);
+      const allCoords = network.flatMap(f=>f.geometry.coordinates);
+      const bigGeom = turf.lineString(allCoords);
+
+      const projections = stations.map(s2=>{
+        const p2=turf.point([s2.lng,s2.lat]);
+        const snap2=turf.nearestPointOnLine(bigGeom,p2);
+        return {s2, dist:snap2.properties.dist*1000, loc:snap2.properties.location};
+      }).filter(p=>p.dist<tolerance)
+        .sort((a,b)=>a.loc-b.loc);
+
+      const idx = projections.findIndex(p=>p.s2===station);
+      if(idx!==-1){
+        const prev=projections[idx-1], next=projections[idx+1];
+        if(prev) connected.add(prev.s2);
+        if(next) connected.add(next.s2);
+      }
     }
   });
   return Array.from(connected);
 }
 
-// === Object proximity reveal ===
+// Reveal nearby objects
 function revealNearbyObjects(station){
   const mile=1609.34;
   objectMarkers.forEach((m,i)=>{
@@ -177,22 +208,21 @@ function revealNearbyObjects(station){
   });
 }
 
-// === Filter visible stations (40-mile radius) ===
+// Filter visible stations
 function updateVisibleStations(center){
   const mile=1609.34;
   stationMarkers.forEach(({station, marker})=>{
     const d=map.distance([center.lat,center.lng],[station.lat,station.lng]);
-    if(d<40*mile){ marker.addTo(map); }
-    else { map.removeLayer(marker); }
+    if(d<40*mile){ marker.addTo(map); } else { map.removeLayer(marker); }
   });
 }
 
-// === Main logic ===
+// === Main functions ===
 function arriveAtStation(station){
   currentStation=station;
   hudStation.textContent=station.name;
   trainMarker.setLatLng([station.lat,station.lng]);
-  map.setView([station.lat,station.lng],10);
+  map.setView([station.lat,station.lng],14); // closer zoom
   revealNearbyObjects(station);
   updateVisibleStations(station);
   showChoices(station);
@@ -200,10 +230,10 @@ function arriveAtStation(station){
 
 function travelToStation(next){
   loadingScreen.style.display='flex';
-  choiceContainer.innerHTML='';
-
+  choiceButtons.forEach(b=>b.btn.remove());
+  choiceButtons=[];
   if(highlightLine){ map.removeLayer(highlightLine); }
-  highlightLine = L.polyline([[currentStation.lat,currentStation.lng],[next.lat,next.lng]],{
+  highlightLine=L.polyline([[currentStation.lat,currentStation.lng],[next.lat,next.lng]],{
     color:'orange',weight:4,opacity:0.8
   }).addTo(map);
 
@@ -216,42 +246,46 @@ function travelToStation(next){
 
 // === Choice buttons ===
 function showChoices(station){
-  choiceContainer.innerHTML='';
-  const connected = connectedStations(station);
+  choiceButtons.forEach(b=>b.btn.remove());
+  choiceButtons=[];
+  const connected=connectedStations(station);
   if(connected.length===0) return;
 
-  // Highlight reachable stations
-  stationMarkers.forEach(({station:s, marker})=>{
+  stationMarkers.forEach(({station:s,marker})=>{
     marker.setStyle({color:'#0044cc',fillColor:'#00aaff'});
   });
   connected.forEach(dest=>{
-    const sm = stationMarkers.find(x=>x.station===dest);
+    const sm=stationMarkers.find(x=>x.station===dest);
     if(sm) sm.marker.setStyle({color:'orange',fillColor:'orange'});
   });
 
   connected.forEach(dest=>{
-    const dx=dest.lng-station.lng;
-    const dy=dest.lat-station.lat;
-    const angle=Math.atan2(dy,dx);
-    const radius=120;
-    const x=150+radius*Math.cos(angle);
-    const y=150-radius*Math.sin(angle);
-
+    const latlng=L.latLng(dest.lat,dest.lng);
     const btn=document.createElement('button');
     btn.className='choice-btn';
-    btn.style.left=x+'px';
-    btn.style.top=y+'px';
     btn.textContent=dest.name;
     btn.onclick=()=>travelToStation(dest);
-    choiceContainer.appendChild(btn);
+    document.body.appendChild(btn);
+    choiceButtons.push({btn,latlng});
   });
+  repositionButtons();
 }
 
-// === Fast-travel search ===
+function repositionButtons(){
+  if(!choiceButtons.length) return;
+  choiceButtons.forEach(({btn,latlng})=>{
+    const point=map.latLngToContainerPoint(latlng);
+    btn.style.left=(point.x-60)+'px';
+    btn.style.top=(point.y-25)+'px';
+  });
+}
+map.on('zoom move', repositionButtons);
+
+// === Fast travel ===
 document.getElementById('travelBtn').onclick=()=>{
-  const query=document.getElementById('stationSearch').value.toLowerCase();
-  if(!query) return;
-  const match=stations.find(s=>s.name.toLowerCase().includes(query));
+  const q=document.getElementById('stationSearch').value.toLowerCase();
+  if(!q) return;
+  const match=stations.find(s=>s.name.toLowerCase().includes(q));
   if(match){ travelToStation(match); }
   else alert("Station not found.");
 };
