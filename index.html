@@ -43,16 +43,6 @@ html, body { margin:0; height:100%; overflow:hidden; font-family:system-ui,sans-
 }
 .choice-btn:hover { background:darkorange; transform:scale(1.1); }
 
-.highlight-marker {
-  animation: pulse 1.5s infinite;
-  box-shadow:0 0 10px 4px orange;
-}
-@keyframes pulse {
-  0% { box-shadow:0 0 6px 2px orange; }
-  50% { box-shadow:0 0 14px 6px orange; }
-  100% { box-shadow:0 0 6px 2px orange; }
-}
-
 #fastTravelPanel {
   position:absolute; top:10px; left:50%; transform:translateX(-50%);
   background:rgba(255,255,255,0.95); padding:6px 12px; border-radius:8px;
@@ -87,7 +77,10 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
 }).addTo(map);
 
 // Train icon
-const trainIcon = L.divIcon({className:'',html:'<div class="train-emoji">🚆</div>',iconSize:[48,48],iconAnchor:[24,24]});
+const trainIcon = L.divIcon({
+  className:'',html:'<div class="train-emoji">🚆</div>',
+  iconSize:[48,48],iconAnchor:[24,24]
+});
 const trainMarker = L.marker([53.5,-2.5],{icon:trainIcon}).addTo(map);
 
 const hudStation=document.getElementById('stationDisplay');
@@ -111,10 +104,12 @@ Promise.all([
   }));
   objects = objectData;
 
-  // Draw railways
-  L.geoJSON(railData, { color: '#999', weight: 1 }).addTo(map);
+  // === Draw railways clearly visible ===
+  L.geoJSON(railData, {
+    color: '#444', weight: 2, opacity: 0.8
+  }).addTo(map);
 
-  // Draw station markers (invisible initially)
+  // === Draw stations ===
   stations.forEach(s=>{
     const marker = L.circleMarker([s.lat,s.lng],{
       radius:4,color:'#0044cc',fillColor:'#00aaff',fillOpacity:0.9
@@ -123,11 +118,12 @@ Promise.all([
     stationMarkers.push({station:s, marker});
   });
 
-  // Place object markers
+  // === Draw object markers ===
   objects.forEach(o=>{
-    const m=L.circleMarker([o.lat,o.lng],{radius:5,color:'#aa0000',fillColor:'#ff5555',fillOpacity:0.7})
-      .addTo(map)
-      .bindPopup(`<b>${o.title}</b><br>${o.description}<br><i>${o.place}</i>`);
+    const m=L.circleMarker([o.lat,o.lng],{
+      radius:5,color:'#aa0000',fillColor:'#ff5555',fillOpacity:0.7
+    }).addTo(map)
+     .bindPopup(`<b>${o.title}</b><br>${o.description}<br><i>${o.place}</i>`);
     m.closePopup();
     objectMarkers.push(m);
   });
@@ -147,16 +143,23 @@ function nearestStation(pos){
   return nearest;
 }
 
+// === Improved connection detection using Turf nearestPointOnLine ===
 function connectedStations(station){
   const connected = new Set();
+  const tolerance = 1500; // meters
+  const pt = turf.point([station.lng, station.lat]);
+
   railways.forEach(line=>{
-    const coords=line.geometry.coordinates;
-    const onLine = coords.some(c=>map.distance([station.lat,station.lng],[c[1],c[0]])<500);
-    if(onLine){
+    const geom = turf.lineString(line.geometry.coordinates);
+    const snapped = turf.nearestPointOnLine(geom, pt);
+    if(snapped.properties.dist * 1000 < tolerance){
+      // This station belongs to this line
       stations.forEach(s2=>{
-        if(s2!==station){
-          const near = coords.some(c=>map.distance([s2.lat,s2.lng],[c[1],c[0]])<500);
-          if(near) connected.add(s2);
+        if(s2===station) return;
+        const pt2 = turf.point([s2.lng, s2.lat]);
+        const snap2 = turf.nearestPointOnLine(geom, pt2);
+        if(snap2.properties.dist * 1000 < tolerance){
+          connected.add(s2);
         }
       });
     }
@@ -164,6 +167,7 @@ function connectedStations(station){
   return Array.from(connected);
 }
 
+// === Object proximity reveal ===
 function revealNearbyObjects(station){
   const mile=1609.34;
   objectMarkers.forEach((m,i)=>{
@@ -173,20 +177,17 @@ function revealNearbyObjects(station){
   });
 }
 
-// Filter stations by 40-mile radius
+// === Filter visible stations (40-mile radius) ===
 function updateVisibleStations(center){
   const mile=1609.34;
   stationMarkers.forEach(({station, marker})=>{
     const d=map.distance([center.lat,center.lng],[station.lat,station.lng]);
-    if(d<40*mile){
-      marker.addTo(map);
-    } else {
-      map.removeLayer(marker);
-    }
+    if(d<40*mile){ marker.addTo(map); }
+    else { map.removeLayer(marker); }
   });
 }
 
-// === Main station logic ===
+// === Main logic ===
 function arriveAtStation(station){
   currentStation=station;
   hudStation.textContent=station.name;
@@ -201,7 +202,6 @@ function travelToStation(next){
   loadingScreen.style.display='flex';
   choiceContainer.innerHTML='';
 
-  // Draw highlight line
   if(highlightLine){ map.removeLayer(highlightLine); }
   highlightLine = L.polyline([[currentStation.lat,currentStation.lng],[next.lat,next.lng]],{
     color:'orange',weight:4,opacity:0.8
@@ -247,7 +247,7 @@ function showChoices(station){
   });
 }
 
-// === Fast travel search ===
+// === Fast-travel search ===
 document.getElementById('travelBtn').onclick=()=>{
   const query=document.getElementById('stationSearch').value.toLowerCase();
   if(!query) return;
@@ -255,7 +255,6 @@ document.getElementById('travelBtn').onclick=()=>{
   if(match){ travelToStation(match); }
   else alert("Station not found.");
 };
-
 </script>
 </body>
 </html>
